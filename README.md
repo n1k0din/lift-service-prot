@@ -1,2 +1,2 @@
 # lift-service-prot
-Prototype analyzer of LMDS Software events
+[Prototype] analyzer of LMDS Software events
