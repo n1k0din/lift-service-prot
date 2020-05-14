@@ -65,20 +65,7 @@ for event in raw_events:
 # была ли зафиксирована неисправность в этот момент
 
 
-# for x in sorted(defects_dict):
-#     print(x)
-#         print(x[0], str(x[1]), sep=';')
 
-
-
-
-
-
-output = open('out.txt', 'w')
-for event in raw_events:
-    num = int(event[3])
-    flag = int(event[2])
-    output.write(" ".join(event) + str(is_defect(num, flag)) + '\n')
 
 
 
@@ -119,31 +106,42 @@ while i < stop_date:
 
 # delta это период простоя, при котором мы считаем лифт поломатым
 delta = timedelta(hours=1)
+delta_events = timedelta(hours=1)
 one_hour = timedelta(hours=1)
 
 count_statuses = {}  # почасовое количество неисправностей для всех лифтов
 count_daily_statuses = defaultdict(lambda: 0)  # посуточное количество неисправностей для всех лифтов
-i = start_date + delta
+i = start_date
 while i < stop_date:  # перебираем дата-время от начала до конца по часам
 
     sum = 0
     # хотим определить, сколько лифтов неисправно в этот час
     # неисправно = не двигался
     for lift in all_stats:  # для каждой даты-времени перебираем лифты
-        j = i - delta  # индекс начала периода
+        j = i + one_hour  # начало периода
         flag = False  # будем считать что лифт по умолчанию не двигается
-        while j < i:  # идем по периоду delta
+        while j <= i + delta:  # идем по периоду delta
             if all_stats[lift][j] != 0:  # если наткнулись на лифт с движением
                 flag = True  # значит лифт рабочий
             j += one_hour
 
         if not flag:  #если лифт всё-таки нерабочий
-            if defects_dict[i - one_hour, lift]:  # и есть ошибки в час отсутствия движения
-                statuses[i - one_hour, lift] = False  # отмечаем это в большом словаре статусов
+            defect_flag = False
+            j = i - delta_events + one_hour
+            # print(j, i - one_hour)
+            while j <= i:
+                if defects_dict[j, lift]:  # если дефект найден
+                    defect_flag = True
+                j += one_hour
+
+            if True:
+                # print(lift, i, "defect")
+                statuses[i, lift] = False  # отмечаем это в большом словаре статусов
                 sum += 1  # и увеличиваем счетчик сломанных лифтов в час
+
     # т.к. в час i мы получаем данные о движении в часе i-1 (то же две строки выше)
     # то статус надо менять не для текущего часа, а для часа минус один
-    prev = (i - one_hour).replace(second=0, minute=0)  # округления для одинаковых ключей
+    prev = i.replace(second=0, minute=0)  # округления для одинаковых ключей
 
     # теперь в sum количество сломанных лифтов за час
     count_statuses[prev] = sum
