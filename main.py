@@ -34,6 +34,78 @@ def is_defect_stop(num: int, flag: int):
     return (num in num_wo_flag.values()) or (num in num_with_flags and flag & 2 == 0)
 
 
+def make_defect_statuses_dict(filename='Events.csv'):
+    """
+    Изменим логику. Сначала создадим словарь статусов дефектов:
+    (лифт, дата) : {номер неисправности : bool}
+    """
+    # {лифт: {номер неисправности : bool}}
+
+    current = defaultdict(dict)
+
+    with open(filename, 'r') as csv_file:
+        reader = csv.reader(csv_file, dialect='win')
+        _ = reader.__next__()  # игнорим первую строку
+        defect_statuses_dict = dict()
+
+        for id_lift, dt, flag, num, _ in reader:
+
+            num = int(num)
+            flag = int(flag)
+            dt = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
+
+            dt = dt.replace(second=0, minute=0)  # округлим до часа
+
+            key = (dt, id_lift)
+
+            if is_defect_start(num, flag):
+                current[id_lift][num] = True
+            elif is_defect_stop(num, flag):
+                current[id_lift][num] = False
+
+            defect_statuses_dict[key] = current[id_lift].copy()
+            # print(key, defect_statuses_dict[key])
+
+    return defect_statuses_dict
+
+
+def fill_spaces(d, lifts: set):
+    # на входе словарь (лифт, дата) : {номер неисправности : bool}
+
+    i = start_date
+
+    while i < stop_date:
+
+        for lift in lifts:
+            statuses = d.get((i, lift))
+            if not statuses:
+                # если в статусах пусто, надо найти предыдущее значение
+                #print((i, lift), defects, sep = '*')
+                j = i - timedelta(hours=1)
+                flag = False
+                while j >= start_date:
+                    if d.get((j, lift)):
+                        flag = True
+                        break
+                    j = j - timedelta(hours=1)
+
+                if flag:
+                    d[i, lift] = d[j, lift]
+                else:
+                    d[i, lift] = {}
+
+        i += timedelta(hours=1)
+    return d
+
+def make_defects_from_statuses(d):
+    # на входе словарь (лифт, дата) : {номер неисправности : bool}
+    # на выходе словарь дефектов (лифт, дата) : True если дефект
+    defects_dict = defaultdict(lambda: False)  # по умолчанию - НЕ дефект, т.е. всё хорошо
+    for k in d:
+        defects_dict[k] = any(d[k].values())
+    return defects_dict
+
+
 def make_defects_dict(filename='Events.csv'):
     """
     На входе файл, на выходе словарь
@@ -58,6 +130,11 @@ def make_defects_dict(filename='Events.csv'):
         return defects_dict
 
 
+
+
+
+
+
 def process(t_stat=1, t_events=1):
 
     csvfile = open('StatDriv.csv', 'r')
@@ -69,7 +146,14 @@ def process(t_stat=1, t_events=1):
         raw_data.append(row)
     csvfile.close()
 
-    defects_dict = make_defects_dict()
+
+    #defects_dict = make_defects_dict()
+
+
+
+
+
+
 
     # словарь по лифтам, внутри словарь по кол-ву включений
     all_stats = defaultdict(lambda: defaultdict(lambda: None))
@@ -100,6 +184,21 @@ def process(t_stat=1, t_events=1):
             statuses[key] = True
 
         i = i + timedelta(hours=1)
+
+    ddd = make_defect_statuses_dict()
+    # print("Словарь за заполнения")
+    # for x in sorted(ddd):
+    #     print(x, ddd[x], sep=';')
+    defects_dict = fill_spaces(ddd, all_stats.keys())
+    defects_dict = make_defects_from_statuses(defects_dict)
+
+    # print("Словарь после заполнения")
+    # for x in sorted(ddd):
+    #     print(x, ddd[x], sep=';')
+
+    #
+    # print("==========")
+
 
     # delta это период простоя, при котором мы считаем лифт поломатым
     delta = timedelta(hours=t_stat)
@@ -132,6 +231,10 @@ def process(t_stat=1, t_events=1):
 
                 if defect_flag:
                     print(lift, i, "defect", sep=';')
+                    # try:
+                    #     print(ddd[i, lift])
+                    # except:
+                    #     pass
                     statuses[i, lift] = False  # отмечаем это в большом словаре статусов
                     sum += 1  # и увеличиваем счетчик сломанных лифтов в час
 
