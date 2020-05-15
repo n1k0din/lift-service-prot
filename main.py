@@ -2,6 +2,13 @@ import csv
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+num_with_flags = {132, 145, 147, 149, 160, 161, 162, 164, 176, 144, 181}  # нужно учесть флаг для определения начала
+num_wo_flag = {19: 18}  # ключ: событие-начало, значение: событие-конец
+
+start_date = datetime(2019, 12, 1)
+stop_date = datetime(2019, 12, 21)
+
+
 def norm_num(d):
     """
     Перебираем словарь с ключами-датами и делаем из абсолютный значений относительные
@@ -15,15 +22,40 @@ def norm_num(d):
 
 
 # определяет, является ли событие индикатором неисправности
-def is_defect(num:int, flag:int):
-    # набор событий индикаторов
-    num_with_flags = {132, 145, 147, 149, 160, 161, 162, 164, 176, 144, 181}  # нужно учесть флаг для определения начала
-    num_wo_flag = {19}  # событие и есть начало
-    #if (num in num_wo_flag) or (num in num_with_flags and flag & 2 != 0):
-    if (num in num_wo_flag) or (num in num_with_flags):
-        return True
-    else:
-        return False
+def is_defect(num: int, flag: int):
+    return is_defect_start(num, flag) or is_defect_stop(num, flag)
+
+
+def is_defect_start(num: int, flag: int):
+    return (num in num_wo_flag) or (num in num_with_flags and flag & 2 != 0)
+
+
+def is_defect_stop(num: int, flag: int):
+    return (num in num_wo_flag.values()) or (num in num_with_flags and flag & 2 == 0)
+
+
+def make_defects_dict(filename='Events.csv'):
+    """
+    На входе файл, на выходе словарь
+    словарь дефектов {(лифт, дата) : True если дефект}
+    """
+    with open(filename, 'r') as csv_file:
+        reader = csv.reader(csv_file, dialect='win')
+        _ = reader.__next__()  # игнорим первую строку
+
+        defects_dict = defaultdict(lambda: False)  # по умолчанию - НЕ дефект, т.е. всё хорошо
+        for id_lift, dt, flag, num, _ in reader:
+            num = int(num)
+            flag = int(flag)
+            dt = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
+
+            dt = dt.replace(second=0, minute=0)  # округлим до часа
+
+            if is_defect(num, flag):  # если событие ошибочное
+                if not defects_dict[dt, id_lift]:  # а в словаре дефет не отмечен
+                    defects_dict[dt, id_lift] = True  # отметим
+
+        return defects_dict
 
 
 def process(t_stat=1, t_events=1):
@@ -37,37 +69,10 @@ def process(t_stat=1, t_events=1):
         raw_data.append(row)
     csvfile.close()
 
-    csvfile_events = open('Events.csv', 'r')
-    reader = csv.reader(csvfile_events, dialect='win')
-    _ = reader.__next__()
-    raw_events = []
-    for row in reader:
-        raw_events.append(row)
-    csvfile_events.close()
-
-    # словарь дефектов {(лифт, дата) : True если дефект}
-    defects_dict = defaultdict(lambda: False)  # по умолчанию - НЕ дефект, т.е. всё хорошо
-    for event in raw_events:
-        id_lift = event[0]
-        num = int(event[3])
-        flag = int(event[2])
-        dt = datetime.strptime(event[1], "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
-        # там ещё текстовое описание в event[4], но мы его проигнорируем
-        rounded_dt = dt.replace(second=0, minute=0)  # округлим до часа
-        df = is_defect(num, flag)
-        if df:  # если событие ошибочное
-            if not defects_dict[rounded_dt, id_lift]: #если в словаре False
-                defects_dict[rounded_dt, id_lift] = True
-            # иначе в словаре True, значит для этого лифта в этот час уже зафиксирована неисправность
-            # так тому и быть
-    # в результате имеем словарь и по дате-времени и ид лифта можем сказать -
-    # была ли зафиксирована неисправность в этот момент
+    defects_dict = make_defects_dict()
 
     # словарь по лифтам, внутри словарь по кол-ву включений
     all_stats = defaultdict(lambda: defaultdict(lambda: None))
-
-    start_date = datetime(2020, 2, 1)
-    stop_date = datetime(2020, 3, 1)
 
     # перебираем всё что прочитали
     for x in raw_data:
@@ -126,7 +131,7 @@ def process(t_stat=1, t_events=1):
                     j += one_hour
 
                 if defect_flag:
-                    # print(lift, i, "defect")
+                    print(lift, i, "defect", sep=';')
                     statuses[i, lift] = False  # отмечаем это в большом словаре статусов
                     sum += 1  # и увеличиваем счетчик сломанных лифтов в час
 
@@ -149,16 +154,13 @@ def process(t_stat=1, t_events=1):
     return count_daily_statuses
 
 
-
 if __name__ == '__main__':
 
     res = []
 
+    #res.append(process(1, 1))
     res.append(process(1, 1))
-    res.append(process(1, 5))
-
-    start_date = datetime(2020, 2, 1)
-    stop_date = datetime(2020, 3, 1)
+    #res.append(process(2, 2))
 
     dt = start_date
     while dt < stop_date:
