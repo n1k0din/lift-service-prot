@@ -11,7 +11,7 @@ stop_date = datetime(2019, 12, 21)
 
 def norm_num(d):
     """
-    Перебираем словарь с ключами-датами и делаем из абсолютный значений относительные
+    Перебираем словарь с ключами-датами и делаем из абсолютных значений относительные
     """
     min_date = min(d)  # минимальный ключ = самая ранняя дата
     prev_abs_num = d[min_date]
@@ -97,6 +97,7 @@ def fill_spaces(d, lifts: set):
         i += timedelta(hours=1)
     return d
 
+
 def make_defects_from_statuses(d):
     # на входе словарь (лифт, дата) : {номер неисправности : bool}
     # на выходе словарь дефектов (лифт, дата) : True если дефект
@@ -130,29 +131,36 @@ def make_defects_dict(filename='Events.csv'):
         return defects_dict
 
 
+def csvfile_to_list(filename: str, dialect='excel'):
+    raw_data = []
+    with open(filename, 'r') as csvfile:
+        reader = csv.reader(csvfile, dialect=dialect)
+        _ = reader.__next__()
+        for row in reader:
+            raw_data.append(row)
+        return raw_data
 
 
+def get_first_last_day(lst: list, date_format: str, date_index=1):
+    first = datetime.strptime(lst[0][date_index], date_format)
+    last = datetime.strptime(lst[-1][date_index], date_format)
 
+    to_day_params = {'microsecond': 0, 'second': 0, 'minute': 0, 'hour': 0}
+
+    first = first.replace(**to_day_params)
+    last = last.replace(**to_day_params)
+    last = last.replace(day=last.day + 1)
+
+    return first, last
 
 
 def process(t_stat=1, t_events=1):
 
-    csvfile = open('StatDriv.csv', 'r')
-    csv.register_dialect('win', delimiter=';' )
-    reader = csv.reader(csvfile, dialect="win")
-    _ = reader.__next__()
-    raw_data = []
-    for row in reader:
-        raw_data.append(row)
-    csvfile.close()
+    csv.register_dialect('win', delimiter=';')
+    date_format = "%Y-%m-%d %H:%M:%S.%f"
 
-
-    #defects_dict = make_defects_dict()
-
-
-
-
-
+    raw_data = csvfile_to_list('statdriv.csv', 'win')
+    date0, date1 = get_first_last_day(raw_data, date_format)
 
 
     # словарь по лифтам, внутри словарь по кол-ву включений
@@ -163,7 +171,7 @@ def process(t_stat=1, t_events=1):
         # 0, 1, 2 это идентификатор лифта, датавремя вычитывания, кол-во включений
         id_lift = x[0]
         num = int(x[2])
-        dt = datetime.strptime(x[1], "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
+        dt = datetime.strptime(x[1], date_format)  # преобразуем в datetime
         rounded_dt = dt.replace(microsecond=0, second=0, minute=0)  # округлим до часа
 
         # если ключ новый, присваиваем, если старый - добавляем к старому
