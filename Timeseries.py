@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 from collections.abc import MutableMapping
 
+
 #from https://stackoverflow.com/questions/24763464/mutable-dictionary-with-fixed-and-ordered-keys
 class Timeseries(MutableMapping):
     def __init__(self, start: datetime, stop: datetime, delta: timedelta, default=None):
@@ -21,11 +22,11 @@ class Timeseries(MutableMapping):
 
     def __setitem__(self, key, value):
         if key not in self._d:
-            raise KeyError("Must not add new keys")
+            raise KeyError("Not allowed")
         self._d[key] = value
 
     def __delitem__(self, key):
-        raise NotImplementedError("Must not remove keys")
+        raise NotImplementedError("Not allowed")
 
     def __iter__(self):
         return iter(self._d)
