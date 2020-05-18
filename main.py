@@ -158,31 +158,86 @@ def get_first_last_day(lst: list, date_format: str, date_index=1):
 
 
 def init_with_dict(ts: Timeseries):
-    for key in ts:
-        ts[key] = dict()
+    for dt in ts:
+        ts[dt] = dict()
 
 
-#заполняет timeseries словарь данными из списка
-def fill_ts_from_list(ts: Timeseries, lst: list, date_format: str):
-    lifts = set()
+def init_with_dict_fromkeys(ts: Timeseries, keys: set):
+    for dt in ts:
+        ts[dt] = dict.fromkeys(keys)
+
+
+def init_events(events: Timeseries, lifts: set):
+    init_with_dict_fromkeys(events, lifts)
+    for dt in events:
+        for lift in events[dt]:
+            events[dt][lift] = dict.fromkeys(num_with_flags | num_wo_flag.keys())
+
+
+# заполняет timeseries словарь данными из списка (только если у него в качестве value целое число лол)
+def stats_from_list(ts: Timeseries, lst: list, date_format: str):
+    lifts = set() #заодно вернем сет встретившихся лифтов, чтоб два раза не вставать
     for lift, dt, num in lst:
         lifts.add(lift)
-
         num = int(num)
         dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
-        if lift in ts[dt]:
-            ts[dt][lift] += num - ts[dt][lift]
-        else:
-            ts[dt][lift] = num
+        ts[dt][lift] = num # даже если значение уже было, нужно его перезаписать, т.к. в исходнике абсолютн. значение
     return lifts
+
+
+def events_from_list(ts: Timeseries, lst: list, date_format: str):
+    # вспомогательный словарь {лифт: {номер_неисправности: её актуальность}}
+    current = defaultdict(dict)
+
+    for lift, dt, flag, num, _ in lst:
+        num = int(num)
+        flag = int(flag)
+        dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
+
+        if is_defect_start(num, flag):
+            current[lift][num] = True
+        elif is_defect_stop(num, flag):
+            current[lift][num] = False
+
+        ts[dt][lift].update(current[lift])
+
+
+def is_all_none(iterable):
+    for elem in iterable:
+        if elem is not None:
+            return False
+    return True
+
+
+def fill_events(ts: Timeseries):
+    one_hour = timedelta(hours=1)
+    for dt in ts:
+        for lift in ts[dt]:
+            if is_all_none(ts[dt][lift].values()):
+                i = dt - one_hour
+                flag = False
+                while i >= ts.start:
+                    if not is_all_none(ts[i][lift].values()):
+                        flag = True
+                        break
+                    i -= one_hour
+
+                if flag:
+                    ts[dt][lift].update(ts[i][lift])
+
+
+
+# на случай если в самой первой записи статистики будут не все лифты
+def init_first_row(ts: Timeseries, lifts: set):
+    for lift in lifts:
+        if lift not in ts[ts.start]:
+            ts[ts.start] = 0
 
 
 # преобразует абсолютное кол-во включений в почасовое
 def norm_ts(ts: Timeseries, lifts: set):
-    # на случай если в первом наблюдении есть не все лифты
-    for lift in lifts:
-        if lift not in ts[ts.start]:
-            ts[ts.start] = 0
+
+    init_first_row(ts, lifts)
 
     prev = ts[ts.start].copy()
 
@@ -190,7 +245,7 @@ def norm_ts(ts: Timeseries, lifts: set):
         for lift in lifts:
             if lift in ts[dt]:
                 current = ts[dt][lift]
-                # абсолютный счётчик может быть сброшен, тогда нужна не разница, а новое знач. счётчика
+                # абсолютный счётчик может начаться заново в исходнике, тогда нужна не разница, а новое знач. счётчика
                 ts[dt][lift] = current - prev[lift] if current >= prev[lift] else current
                 prev[lift] = current
             else:
@@ -203,23 +258,24 @@ def process(t_stat=1, t_events=1):
     csv.register_dialect('win', delimiter=';')
     date_format = "%Y-%m-%d %H:%M:%S.%f"
 
-    raw_data = csvfile_to_list('statdriv.csv', 'win')
-    first, last = get_first_last_day(raw_data, date_format)
+    raw_stats = csvfile_to_list('statdriv.csv', 'win')
 
+    # это новый блок
+    first, last = get_first_last_day(raw_stats, date_format)
     drivestat = Timeseries(first, last, timedelta(hours=1))
     init_with_dict(drivestat)
-
     # заполняем данными, могуть быть пропуски
-    lifts = fill_ts_from_list(drivestat, raw_data, date_format)
-
+    lifts = stats_from_list(drivestat, raw_stats, date_format)
+    # переводим статистику в почасовую и заполняем пропуски None
     norm_ts(drivestat, lifts)
     # в результате у нас словарь {datetime: {lift_id: num}}
+    # новый блок окончен
 
     # словарь по лифтам, внутри словарь по кол-ву включений
     all_stats = defaultdict(lambda: defaultdict(lambda: None))
 
     # перебираем всё что прочитали
-    for x in raw_data:
+    for x in raw_stats:
         # 0, 1, 2 это идентификатор лифта, датавремя вычитывания, кол-во включений
         id_lift = x[0]
         num = int(x[2])
@@ -246,12 +302,27 @@ def process(t_stat=1, t_events=1):
 
         i = i + timedelta(hours=1)
 
+    raw_events = csvfile_to_list('events.csv', 'win')
+    # startdate и stopdate будем использовать те же, что и для вкл. ГП
+    events = Timeseries(first, last, timedelta(hours=1))
+    init_events(events, lifts)  # {datetime : {lift : {num : }}}
+    events_from_list(events, raw_events, date_format)
+    fill_events(events)
+
+
+
+    # шаг 1. собираем словарь со статусом неисправности для каждого лифта каждый известный час.
     ddd = make_defect_statuses_dict()
+
     # print("Словарь за заполнения")
     # for x in sorted(ddd):
     #     print(x, ddd[x], sep=';')
+    # шаг 2. заполняем пробелы в этом словаре
     defects_dict = fill_spaces(ddd, all_stats.keys())
+
+    # шаг 3. делаем из постатусного словаря общий
     defects_dict = make_defects_from_statuses(defects_dict)
+
 
     # delta это период простоя, при котором мы считаем лифт поломатым
     delta = timedelta(hours=t_stat)
