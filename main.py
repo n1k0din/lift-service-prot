@@ -213,18 +213,17 @@ def fill_events(ts: Timeseries):
     one_hour = timedelta(hours=1)
     for dt in ts:
         for lift in ts[dt]:
-            if is_all_none(ts[dt][lift].values()):
+            if is_all_none(ts[dt][lift].values()):  # если все статусы = None
                 i = dt - one_hour
                 flag = False
-                while i >= ts.start:
+                while i >= ts.start:  # найдем какой-нибудь непустой статус
                     if not is_all_none(ts[i][lift].values()):
                         flag = True
                         break
                     i -= one_hour
 
-                if flag:
+                if flag:  # нашли
                     ts[dt][lift].update(ts[i][lift])
-
 
 
 # на случай если в самой первой записи статистики будут не все лифты
@@ -238,9 +237,7 @@ def init_first_row(ts: Timeseries, lifts: set):
 def norm_ts(ts: Timeseries, lifts: set):
 
     init_first_row(ts, lifts)
-
     prev = ts[ts.start].copy()
-
     for dt in ts:
         for lift in lifts:
             if lift in ts[dt]:
@@ -253,6 +250,20 @@ def norm_ts(ts: Timeseries, lifts: set):
                 ts[dt][lift] = None
 
 
+# на входе Timeseries {дата: {лифт : {неисправность : активность неисправности}}}
+# вернем Timeseries {дата: {лифт : факт неисправности}}
+def defects_from_events(events: Timeseries):
+    defects = Timeseries(events.start, events.stop, timedelta(hours=1))
+    init_with_dict(defects)
+
+    for dt in events:
+        for lift in events[dt]:
+            defects[dt][lift] = any(events[dt][lift].values())
+
+    return defects
+
+
+
 def process(t_stat=1, t_events=1):
 
     csv.register_dialect('win', delimiter=';')
@@ -262,6 +273,7 @@ def process(t_stat=1, t_events=1):
 
     # это новый блок
     first, last = get_first_last_day(raw_stats, date_format)
+
     drivestat = Timeseries(first, last, timedelta(hours=1))
     init_with_dict(drivestat)
     # заполняем данными, могуть быть пропуски
@@ -308,6 +320,9 @@ def process(t_stat=1, t_events=1):
     init_events(events, lifts)  # {datetime : {lift : {num : }}}
     events_from_list(events, raw_events, date_format)
     fill_events(events)
+    defects = defects_from_events(events)
+
+
 
 
 
@@ -322,6 +337,9 @@ def process(t_stat=1, t_events=1):
 
     # шаг 3. делаем из постатусного словаря общий
     defects_dict = make_defects_from_statuses(defects_dict)
+
+
+
 
 
     # delta это период простоя, при котором мы считаем лифт поломатым
@@ -349,7 +367,7 @@ def process(t_stat=1, t_events=1):
                 j = i - delta_events + one_hour
                 # print(j, i - one_hour)
                 while j <= i:
-                    if defects_dict[j, lift]:  # если дефект найден
+                    if defects[j][lift]:
                         defect_flag = True
                     j += one_hour
 
