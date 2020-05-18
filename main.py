@@ -1,6 +1,7 @@
 import csv
 from collections import defaultdict
 from datetime import datetime, timedelta
+from Timeseries import Timeseries
 
 num_with_flags = {132, 145, 147, 149, 160, 161, 162, 164, 176, 144, 181}  # нужно учесть флаг для определения начала
 num_wo_flag = {19: 18}  # ключ: событие-начало, значение: событие-конец
@@ -131,6 +132,7 @@ def make_defects_dict(filename='Events.csv'):
         return defects_dict
 
 
+# читает csv файл с определенным диалектом в список, игнорирует первую строку
 def csvfile_to_list(filename: str, dialect='excel'):
     raw_data = []
     with open(filename, 'r') as csvfile:
@@ -140,7 +142,8 @@ def csvfile_to_list(filename: str, dialect='excel'):
             raw_data.append(row)
         return raw_data
 
-
+# на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
+# на выходе первый и последний день в виде datetime
 def get_first_last_day(lst: list, date_format: str, date_index=1):
     first = datetime.strptime(lst[0][date_index], date_format)
     last = datetime.strptime(lst[-1][date_index], date_format)
@@ -154,14 +157,63 @@ def get_first_last_day(lst: list, date_format: str, date_index=1):
     return first, last
 
 
+def init_with_dict(ts: Timeseries):
+    for key in ts:
+        ts[key] = dict()
+
+
+#заполняет timeseries словарь данными из списка
+def fill_ts_from_list(ts: Timeseries, lst: list, date_format: str):
+    lifts = set()
+    for lift, dt, num in lst:
+        lifts.add(lift)
+
+        num = int(num)
+        dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
+        if lift in ts[dt]:
+            ts[dt][lift] += num - ts[dt][lift]
+        else:
+            ts[dt][lift] = num
+    return lifts
+
+
+# преобразует абсолютное кол-во включений в почасовое
+def norm_ts(ts: Timeseries, lifts: set):
+    # на случай если в первом наблюдении есть не все лифты
+    for lift in lifts:
+        if lift not in ts[ts.start]:
+            ts[ts.start] = 0
+
+    prev = ts[ts.start].copy()
+
+    for dt in ts:
+        for lift in lifts:
+            if lift in ts[dt]:
+                current = ts[dt][lift]
+                # абсолютный счётчик может быть сброшен, тогда нужна не разница, а новое знач. счётчика
+                ts[dt][lift] = current - prev[lift] if current >= prev[lift] else current
+                prev[lift] = current
+            else:
+                # ну и записи просто может не быть
+                ts[dt][lift] = None
+
+
 def process(t_stat=1, t_events=1):
 
     csv.register_dialect('win', delimiter=';')
     date_format = "%Y-%m-%d %H:%M:%S.%f"
 
     raw_data = csvfile_to_list('statdriv.csv', 'win')
-    date0, date1 = get_first_last_day(raw_data, date_format)
+    first, last = get_first_last_day(raw_data, date_format)
 
+    drivestat = Timeseries(first, last, timedelta(hours=1))
+    init_with_dict(drivestat)
+
+    # заполняем данными, могуть быть пропуски
+    lifts = fill_ts_from_list(drivestat, raw_data, date_format)
+
+    norm_ts(drivestat, lifts)
+    # в результате у нас словарь {datetime: {lift_id: num}}
 
     # словарь по лифтам, внутри словарь по кол-ву включений
     all_stats = defaultdict(lambda: defaultdict(lambda: None))
@@ -179,6 +231,7 @@ def process(t_stat=1, t_events=1):
             all_stats[id_lift][rounded_dt] = num
         else:
             all_stats[id_lift][rounded_dt] += num
+
 
     for lift in all_stats:
         norm_num(all_stats[lift])
@@ -199,14 +252,6 @@ def process(t_stat=1, t_events=1):
     #     print(x, ddd[x], sep=';')
     defects_dict = fill_spaces(ddd, all_stats.keys())
     defects_dict = make_defects_from_statuses(defects_dict)
-
-    # print("Словарь после заполнения")
-    # for x in sorted(ddd):
-    #     print(x, ddd[x], sep=';')
-
-    #
-    # print("==========")
-
 
     # delta это период простоя, при котором мы считаем лифт поломатым
     delta = timedelta(hours=t_stat)
