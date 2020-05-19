@@ -183,6 +183,7 @@ def calc_statuses(delta: timedelta, lifts: set, drivestat: Timeseries, defects: 
     return statuses
 
 
+# а были бы у нас абсолютные значения, мы бы просто сравнили первый и последний час
 def calc_not_moving_all_day(drivestat: Timeseries, lifts: set ):
     one_day = timedelta(days=1)
     daily = Timeseries(drivestat.start, drivestat.stop, one_day)
@@ -272,21 +273,21 @@ def prepare_stats_defects():
     # в результате у нас словарь {datetime: {lift_id: num}}
 
     print("Читаем файл с событиями...")
-    raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
+    #!raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
 
-    events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
-    init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
+    #!events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
+    #!init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
 
-    print("Заполняем словарь событий первичными данными...")
-    events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
+    #!print("Заполняем словарь событий первичными данными...")
+    #!events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
 
-    print("Заполняем пропуски...")
-    fill_events(events)  # заполняем пропуски
+    #!print("Заполняем пропуски...")
+    #!fill_events(events)  # заполняем пропуски
 
-    print("Заполняем словарь дефектов...")
-    defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
+    #!print("Заполняем словарь дефектов...")
+    #!defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
 
-    return lifts, drivestat, defects
+    return lifts, drivestat, None
 
 
 def print_statuses(ts: Timeseries):
@@ -313,9 +314,9 @@ if __name__ == '__main__':
 
     for test in tests:
         print("test = ", test)
-        hourly = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
+        #!hourly = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
         daily = calc_not_moving_all_day(drivestat, lifts)
-        write_statuses(hourly, "hourly.csv")
+        #!write_statuses(hourly, "hourly.csv")
         write_statuses(daily, "daily.csv")
         #print_statuses(statuses)
         #print_statuses(daily)
