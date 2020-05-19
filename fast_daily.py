@@ -18,17 +18,19 @@ def main():
 
             key = day, lift
 
-            if hour == '00':
-                if key not in d:
-                    d[key]['start'] = num
-            elif hour == '23':
-                d[key]['stop'] = num
+            if hour == '00' and key not in d or hour == '23':
+                d[key][hour] = num
+            # if hour == '00':
+            #     if key not in d:
+            #         d[key]['start'] = num
+            # elif hour == '23':
+            #     d[key]['stop'] = num
 
 
     daily = defaultdict(int)
     for x in d:
         try:
-            if d[x]['stop'] == d[x]['start']:
+            if d[x]['00'] == d[x]['23']:
                 daily[x[0]] += 1
         except:
             pass
@@ -41,13 +43,13 @@ def main():
 
 
 
-    # with open('new_daily.csv', 'w') as f:
-    #     for x in d:
-    #         try:
-    #             if d[x]['stop'] == d[x]['start']:
-    #                 f.write("{};{}\n".format(x[0], x[1]))
-    #         except:
-    #             pass
+    with open('new_daily.csv', 'w') as f:
+        for x in d:
+            try:
+                if d[x]['00'] == d[x]['23']:
+                    f.write("{};{}\n".format(x[0], x[1]))
+            except:
+                pass
 
 
 if __name__ == '__main__':
