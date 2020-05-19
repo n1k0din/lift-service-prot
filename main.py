@@ -6,6 +6,8 @@ from Timeseries import Timeseries
 num_with_flags = {132, 145, 147, 149, 160, 161, 162, 164, 176, 144, 181}  # нужно учесть флаг для определения начала
 num_wo_flag = {19: 18}  # ключ: событие-начало, значение: событие-конец
 
+one_hour = timedelta(hours=1)
+
 
 def is_defect_start(num: int, flag: int):
     return (num in num_wo_flag) or (num in num_with_flags and flag & 2 != 0)
@@ -170,15 +172,7 @@ def calc_statuses(delta: timedelta, lifts: set, drivestat: Timeseries, defects: 
         # хотим определить, сколько лифтов неисправно в этот час
         # неисправно = не двигался
         for lift in lifts:  # для каждой даты-времени перебираем лифты
-            j = i  # надо проверить, стоял ли лифт delta часов
-            flag = False
-            while j > i - delta:  # идем по периоду delta
-                if drivestat[j][lift] != 0:  # наткнулись на лифт с движением, нам этот лифт не интересен
-                    flag = True
-                    break
-                j -= one_hour
-
-            if not flag:  # если лифт всё-таки стоял
+            if not is_moving(drivestat, lift, i, delta):  # лифт не двигался в отрезке [i-delta + 1; i]
                 #print("candidat: ", lift, i)
                 # нужно проверить, были ли неисправности за эти коротенькие delta часов
                 defect_flag = False
@@ -196,6 +190,16 @@ def calc_statuses(delta: timedelta, lifts: set, drivestat: Timeseries, defects: 
         i += one_hour
 
     return statuses
+
+
+# функция возвращает True если lift ДВИГАЛСЯ во временном отрезке [i - delta + 1; i]
+def is_moving(drivestat: Timeseries, lift: str, i: datetime, delta: timedelta):
+    j = i
+    while j > i - delta:  # идем по периоду delta
+        if drivestat[j][lift] != 0:  # наткнулись на лифт с движением, нам этот лифт не интересен
+            return True
+        j -= one_hour
+    return False
 
 
 # в разработке!
@@ -234,26 +238,34 @@ def prepare_stats_defects():
     csv.register_dialect('win', delimiter=';')
     date_format = "%Y-%m-%d %H:%M:%S.%f"
 
+    print("Читаем файл со статистикой...")
     raw_stats = csvfile_to_list('statdriv.csv', 'win')
+    print("Получаем первый и последний день...")
     first, last = get_first_last_day(raw_stats, date_format)
 
     drivestat = Timeseries(first, last, timedelta(hours=1))  # ряд со статистикой включений двигателя
     init_with_dict(drivestat)
 
+    print("Заполняем словарь статистики первичными данными...")
     lifts = stats_from_list(drivestat, raw_stats, date_format)  # заполняем данными, но могут быть пропуски
 
+    print("Переводим в почасовую статистику и заполняем пропуски...")
     norm_ts(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
     # в результате у нас словарь {datetime: {lift_id: num}}
 
+    print("Читаем файл с событиями...")
     raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
 
     events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
     init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
 
+    print("Заполняем словарь событий первичными данными...")
     events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
 
+    print("Заполняем пропуски...")
     fill_events(events)  # заполняем пропуски
 
+    print("Заполняем словарь дефектов...")
     defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
 
     return lifts, drivestat, defects
@@ -267,7 +279,7 @@ def print_statuses(ts: Timeseries):
 
 if __name__ == '__main__':
 
-    tests = [1, 2, 3, 6, 12, 24]
+    tests = [1]
     res = []
 
     lifts, drivestat, defects = prepare_stats_defects()
