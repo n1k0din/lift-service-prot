@@ -5,12 +5,13 @@ FIRST_HOUR = '00'
 LAST_HOUR = '23'
 
 
+# вычисляет кол-во лифтов без движения в день и складывает в словарь
 def sum_lifts_wo_moving(d: dict):
     daily_sum = defaultdict(int)
 
     for k in d:
         try:
-            if d[k][FIRST_HOUR] == d[k][LAST_HOUR]:
+            if d[k][FIRST_HOUR] == d[k][LAST_HOUR]:  # кол-во включений за день не изменилось
                 daily_sum[k.day] += 1
         except KeyError:
             pass
@@ -43,7 +44,7 @@ def main():
     d = defaultdict(dict)
     with open(filename, 'r') as csvfile:
         reader = csv.reader(csvfile, dialect='win')
-        _ = reader.__next__()
+        _ = reader.__next__()  # проигнорируем первую строку с заголовком
 
         for lift, dt, num in reader:
             # 19.11.2019 00:00:00.000
@@ -51,6 +52,7 @@ def main():
             hour = dt[11:13]
 
             key = Day_lift(day, lift)
+            # нас интересует первое появление 00 часов и последнее появление 23 часов
             if (hour == FIRST_HOUR and key not in d) or hour == LAST_HOUR:
                 d[key][hour] = num
 
