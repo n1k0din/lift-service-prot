@@ -1,5 +1,5 @@
 import csv
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 
 FIRST_HOUR = '00'
 LAST_HOUR = '23'
@@ -11,7 +11,7 @@ def sum_lifts_wo_moving(d: dict):
     for k in d:
         try:
             if d[k][FIRST_HOUR] == d[k][LAST_HOUR]:
-                daily_sum[k[0]] += 1
+                daily_sum[k.day] += 1
         except KeyError:
             pass
 
@@ -30,12 +30,13 @@ def write_date_lift_wo_moving(d: dict, filename='daily.csv'):
         for k in d:
             try:
                 if d[k][FIRST_HOUR] == d[k][LAST_HOUR]:
-                    f.write("{};{}\n".format(k[0], k[1]))
+                    f.write("{};{}\n".format(k.day, k.lift))
             except KeyError:
                 pass
 
 
 def main():
+    Day_lift = namedtuple('Day_lift', ['day', 'lift'])
     filename = 'statdriv.csv'
     csv.register_dialect('win', delimiter=';')
 
@@ -49,7 +50,7 @@ def main():
             day = dt[:10]
             hour = dt[11:13]
 
-            key = day, lift
+            key = Day_lift(day, lift)
             if (hour == FIRST_HOUR and key not in d) or hour == LAST_HOUR:
                 d[key][hour] = num
 
