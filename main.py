@@ -74,7 +74,7 @@ def stats_from_list(ts: Timeseries, lst: list, date_format: str):
 
 def events_from_list(ts: Timeseries, lst: list, date_format: str):
 
-    current = defaultdict(dict) # словарь {лифт: {номер_неисправности: её актуальность}}
+    current = defaultdict(dict)  # словарь {лифт: {номер_неисправности: её актуальность}}
 
     for lift, dt, flag, num in lst:
         num = int(num)
@@ -170,36 +170,54 @@ def calc_statuses(delta: timedelta, lifts: set, drivestat: Timeseries, defects: 
     while i < last:  # перебираем дата-время от начала до конца по часам
 
         # хотим определить, сколько лифтов неисправно в этот час
-        # неисправно = не двигался
-        for lift in lifts:  # для каждой даты-времени перебираем лифты
+        # неисправно = не двигался и была ошибка
+        for lift in lifts:  # перебираем лифты
             if not is_moving(drivestat, lift, i, delta):  # лифт не двигался в отрезке [i-delta + 1; i]
-                #print("candidat: ", lift, i)
-                # нужно проверить, были ли неисправности за эти коротенькие delta часов
-                defect_flag = False
-                j = i - one_hour  # зафиксированное недвижение лифта в час i означает неработу лифта в час i - 1
-                # print(j, i - one_hour)
-                while j > i - delta - one_hour:
-                    if defects[j][lift]:
-                        defect_flag = True
-                        break
-                    j -= one_hour
 
-                if defect_flag:
-                    # print(lift, i, "defect", sep=';')
-                    statuses[i - one_hour][lift] = False  # отмечаем это в большом словаре статусов
+                k = i - one_hour  # зафиксированное недвижение лифта в час i означает неработу лифта в час i - 1
+
+                if is_errors(defects, lift, k, delta):  # и были активные ошибки
+                    statuses[k][lift] = False  # отмечаем лифт как неисправный
         i += one_hour
 
     return statuses
+
+
+def calc_not_moving_all_day(drivestat: Timeseries, lifts: set ):
+    one_day = timedelta(days=1)
+    daily = Timeseries(drivestat.start, drivestat.stop, one_day)
+    init_with_dict(daily)
+    i = drivestat.start + one_day
+    while i < drivestat.stop:
+        for lift in lifts:
+            if not is_moving(drivestat, lift, i, one_day):  # лифт не двигался в отрезке [i-delta + 1; i]
+                k = i - one_day
+                daily[k][lift] = False
+        i += one_day
+    return daily
 
 
 # функция возвращает True если lift ДВИГАЛСЯ во временном отрезке [i - delta + 1; i]
 def is_moving(drivestat: Timeseries, lift: str, i: datetime, delta: timedelta):
     j = i
     while j > i - delta:  # идем по периоду delta
-        if drivestat[j][lift] != 0:  # наткнулись на лифт с движением, нам этот лифт не интересен
+        if drivestat[j][lift] != 0:  # наткнулись на лифт с движением
             return True
         j -= one_hour
     return False
+
+
+# функция возвращает True если на lift были активные неисправности во временном отрезке [i - delta + 1; i]
+def is_errors(defects: Timeseries, lift: str, i: datetime, delta: timedelta):
+    j = i
+    while j > i - delta:
+        if defects[j][lift]:
+            return True
+        j -= one_hour
+    return False
+
+
+
 
 
 # в разработке!
@@ -276,6 +294,14 @@ def print_statuses(ts: Timeseries):
         for lift in ts[dt]:
             print(dt, lift, sep=';')
 
+def write_statuses(ts: Timeseries, filename: str):
+    with open(filename, 'w') as f:
+        for dt in ts:
+            for lift in ts[dt]:
+                f.write("{};{}\n".format(dt, lift))
+
+
+
 
 if __name__ == '__main__':
 
@@ -283,11 +309,16 @@ if __name__ == '__main__':
     res = []
 
     lifts, drivestat, defects = prepare_stats_defects()
+    print("Всего лифтов", len(lifts))
 
     for test in tests:
         print("test = ", test)
-        statuses = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
-        print_statuses(statuses)
+        hourly = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
+        daily = calc_not_moving_all_day(drivestat, lifts)
+        write_statuses(hourly, "hourly.csv")
+        write_statuses(daily, "daily.csv")
+        #print_statuses(statuses)
+        #print_statuses(daily)
 
 
 
