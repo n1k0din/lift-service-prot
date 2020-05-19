@@ -6,26 +6,6 @@ from Timeseries import Timeseries
 num_with_flags = {132, 145, 147, 149, 160, 161, 162, 164, 176, 144, 181}  # нужно учесть флаг для определения начала
 num_wo_flag = {19: 18}  # ключ: событие-начало, значение: событие-конец
 
-start_date = datetime(2019, 12, 1)
-stop_date = datetime(2019, 12, 21)
-
-
-def norm_num(d):
-    """
-    Перебираем словарь с ключами-датами и делаем из абсолютных значений относительные
-    """
-    min_date = min(d)  # минимальный ключ = самая ранняя дата
-    prev_abs_num = d[min_date]
-    for dt in sorted(d):
-        cur_abs_num = d[dt]
-        d[dt] -= prev_abs_num
-        prev_abs_num = cur_abs_num
-
-
-# определяет, является ли событие индикатором неисправности
-def is_defect(num: int, flag: int):
-    return is_defect_start(num, flag) or is_defect_stop(num, flag)
-
 
 def is_defect_start(num: int, flag: int):
     return (num in num_wo_flag) or (num in num_with_flags and flag & 2 != 0)
@@ -33,103 +13,6 @@ def is_defect_start(num: int, flag: int):
 
 def is_defect_stop(num: int, flag: int):
     return (num in num_wo_flag.values()) or (num in num_with_flags and flag & 2 == 0)
-
-
-def make_defect_statuses_dict(filename='Events.csv'):
-    """
-    Изменим логику. Сначала создадим словарь статусов дефектов:
-    (лифт, дата) : {номер неисправности : bool}
-    """
-    # {лифт: {номер неисправности : bool}}
-
-    current = defaultdict(dict)
-
-    with open(filename, 'r') as csv_file:
-        reader = csv.reader(csv_file, dialect='win')
-        _ = reader.__next__()  # игнорим первую строку
-        defect_statuses_dict = dict()
-
-        for id_lift, dt, flag, num, _ in reader:
-
-            num = int(num)
-            flag = int(flag)
-            dt = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
-
-            dt = dt.replace(second=0, minute=0)  # округлим до часа
-
-            key = (dt, id_lift)
-
-            if is_defect_start(num, flag):
-                current[id_lift][num] = True
-            elif is_defect_stop(num, flag):
-                current[id_lift][num] = False
-
-            defect_statuses_dict[key] = current[id_lift].copy()
-            # print(key, defect_statuses_dict[key])
-
-    return defect_statuses_dict
-
-
-def fill_spaces(d, lifts: set):
-    # на входе словарь (лифт, дата) : {номер неисправности : bool}
-
-    i = start_date
-
-    while i < stop_date:
-
-        for lift in lifts:
-            statuses = d.get((i, lift))
-            if not statuses:
-                # если в статусах пусто, надо найти предыдущее значение
-                #print((i, lift), defects, sep = '*')
-                j = i - timedelta(hours=1)
-                flag = False
-                while j >= start_date:
-                    if d.get((j, lift)):
-                        flag = True
-                        break
-                    j = j - timedelta(hours=1)
-
-                if flag:
-                    d[i, lift] = d[j, lift]
-                else:
-                    d[i, lift] = {}
-
-        i += timedelta(hours=1)
-    return d
-
-
-def make_defects_from_statuses(d):
-    # на входе словарь (лифт, дата) : {номер неисправности : bool}
-    # на выходе словарь дефектов (лифт, дата) : True если дефект
-    defects_dict = defaultdict(lambda: False)  # по умолчанию - НЕ дефект, т.е. всё хорошо
-    for k in d:
-        defects_dict[k] = any(d[k].values())
-    return defects_dict
-
-
-def make_defects_dict(filename='Events.csv'):
-    """
-    На входе файл, на выходе словарь
-    словарь дефектов {(лифт, дата) : True если дефект}
-    """
-    with open(filename, 'r') as csv_file:
-        reader = csv.reader(csv_file, dialect='win')
-        _ = reader.__next__()  # игнорим первую строку
-
-        defects_dict = defaultdict(lambda: False)  # по умолчанию - НЕ дефект, т.е. всё хорошо
-        for id_lift, dt, flag, num, _ in reader:
-            num = int(num)
-            flag = int(flag)
-            dt = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S.%f")  # преобразуем в datetime
-
-            dt = dt.replace(second=0, minute=0)  # округлим до часа
-
-            if is_defect(num, flag):  # если событие ошибочное
-                if not defects_dict[dt, id_lift]:  # а в словаре дефет не отмечен
-                    defects_dict[dt, id_lift] = True  # отметим
-
-        return defects_dict
 
 
 # читает csv файл с определенным диалектом в список, игнорирует первую строку
@@ -142,6 +25,8 @@ def csvfile_to_list(filename: str, dialect='excel'):
             raw_data.append(row)
         return raw_data
 
+
+# ВНИМАНИЕ! Список может оказаться несортированым, тогда нужно брать не ласт, а макс!
 # на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
 # на выходе первый и последний день в виде datetime
 def get_first_last_day(lst: list, date_format: str, date_index=1):
@@ -152,7 +37,8 @@ def get_first_last_day(lst: list, date_format: str, date_index=1):
 
     first = first.replace(**to_day_params)
     last = last.replace(**to_day_params)
-    last = last.replace(day=last.day + 1)
+    last += timedelta(days=1)
+    #last = last.replace(day=last.day)
 
     return first, last
 
@@ -166,7 +52,6 @@ def init_with_dict_fromkeys(ts: Timeseries, keys: set):
     for dt in ts:
         ts[dt] = dict.fromkeys(keys)
 
-
 def init_events(events: Timeseries, lifts: set):
     init_with_dict_fromkeys(events, lifts)
     for dt in events:
@@ -174,22 +59,22 @@ def init_events(events: Timeseries, lifts: set):
             events[dt][lift] = dict.fromkeys(num_with_flags | num_wo_flag.keys())
 
 
-# заполняет timeseries словарь данными из списка (только если у него в качестве value целое число лол)
+# заполняет временной ряд статистики включений главного привода
 def stats_from_list(ts: Timeseries, lst: list, date_format: str):
-    lifts = set() #заодно вернем сет встретившихся лифтов, чтоб два раза не вставать
+    lifts = set()  # заодно вернем сет встретившихся лифтов, чтоб два раза не вставать
     for lift, dt, num in lst:
         lifts.add(lift)
         num = int(num)
         dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
-        ts[dt][lift] = num # даже если значение уже было, нужно его перезаписать, т.к. в исходнике абсолютн. значение
+        ts[dt][lift] = num  # даже если значение уже было, нужно его перезаписать, т.к. в исходнике абсолютн. значение
     return lifts
 
 
 def events_from_list(ts: Timeseries, lst: list, date_format: str):
-    # вспомогательный словарь {лифт: {номер_неисправности: её актуальность}}
-    current = defaultdict(dict)
 
-    for lift, dt, flag, num, _ in lst:
+    current = defaultdict(dict) # словарь {лифт: {номер_неисправности: её актуальность}}
+
+    for lift, dt, flag, num in lst:
         num = int(num)
         flag = int(flag)
         dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
@@ -199,7 +84,8 @@ def events_from_list(ts: Timeseries, lst: list, date_format: str):
         elif is_defect_stop(num, flag):
             current[lift][num] = False
 
-        ts[dt][lift].update(current[lift])
+        #print(dt, lift)
+        ts[dt][lift] = current[lift].copy()
 
 
 def is_all_none(iterable):
@@ -209,18 +95,25 @@ def is_all_none(iterable):
     return True
 
 
+# events это временной ряд, значения = лифты (значения = коды ошибок (значения равно состояния ошибок)))
 def fill_events(ts: Timeseries):
     one_hour = timedelta(hours=1)
-    for dt in ts:
-        for lift in ts[dt]:
-            if is_all_none(ts[dt][lift].values()):  # если все статусы = None
+    for dt in ts:  # перебираем даты
+        for lift in ts[dt]:  # потом лифты
+            if is_all_none(ts[dt][lift].values()):  # и проверяем, есть
                 i = dt - one_hour
                 flag = False
                 while i >= ts.start:  # найдем какой-нибудь непустой статус
-                    if not is_all_none(ts[i][lift].values()):
-                        flag = True
-                        break
+                    try:
+                        if not is_all_none(ts[i][lift].values()):
+                            flag = True
+                            break
+                    except:
+                        # лифты из статистики и событий могут не совпадать
+                        # print('Warning at ', i, lift)
+                        pass
                     i -= one_hour
+
 
                 if flag:  # нашли
                     ts[dt][lift].update(ts[i][lift])
@@ -230,14 +123,14 @@ def fill_events(ts: Timeseries):
 def init_first_row(ts: Timeseries, lifts: set):
     for lift in lifts:
         if lift not in ts[ts.start]:
-            ts[ts.start] = 0
+            ts[ts.start][lift] = 0
 
 
 # преобразует абсолютное кол-во включений в почасовое
 def norm_ts(ts: Timeseries, lifts: set):
-
     init_first_row(ts, lifts)
     prev = ts[ts.start].copy()
+
     for dt in ts:
         for lift in lifts:
             if lift in ts[dt]:
@@ -251,7 +144,7 @@ def norm_ts(ts: Timeseries, lifts: set):
 
 
 # на входе Timeseries {дата: {лифт : {неисправность : активность неисправности}}}
-# вернем Timeseries {дата: {лифт : факт неисправности}}
+# вернем Timeseries {дата: {лифт : есть хоть одна активная неисправность}}
 def defects_from_events(events: Timeseries):
     defects = Timeseries(events.start, events.stop, timedelta(hours=1))
     init_with_dict(defects)
@@ -263,157 +156,131 @@ def defects_from_events(events: Timeseries):
     return defects
 
 
+def calc_statuses(delta: timedelta, lifts: set, drivestat: Timeseries, defects: Timeseries):
+    first = drivestat.start
+    last = drivestat.stop
 
-def process(t_stat=1, t_events=1):
+    statuses = Timeseries(first, last, timedelta(hours=1))
+    init_with_dict(statuses)
+    one_hour = timedelta(hours=1)
+
+    i = first + delta
+    while i < last:  # перебираем дата-время от начала до конца по часам
+
+        # хотим определить, сколько лифтов неисправно в этот час
+        # неисправно = не двигался
+        for lift in lifts:  # для каждой даты-времени перебираем лифты
+            j = i  # надо проверить, стоял ли лифт delta часов
+            flag = False
+            while j > i - delta:  # идем по периоду delta
+                if drivestat[j][lift] != 0:  # наткнулись на лифт с движением, нам этот лифт не интересен
+                    flag = True
+                    break
+                j -= one_hour
+
+            if not flag:  # если лифт всё-таки стоял
+                #print("candidat: ", lift, i)
+                # нужно проверить, были ли неисправности за эти коротенькие delta часов
+                defect_flag = False
+                j = i - one_hour  # зафиксированное недвижение лифта в час i означает неработу лифта в час i - 1
+                # print(j, i - one_hour)
+                while j > i - delta - one_hour:
+                    if defects[j][lift]:
+                        defect_flag = True
+                        break
+                    j -= one_hour
+
+                if defect_flag:
+                    # print(lift, i, "defect", sep=';')
+                    statuses[i - one_hour][lift] = False  # отмечаем это в большом словаре статусов
+        i += one_hour
+
+    return statuses
+
+
+# в разработке!
+# лифт неисправен сутки, если он неисправен все 24 часа в сутках
+def calc_daily_statuses(statuses: Timeseries, lifts: set):
+    oneday = timedelta(days=1)
+    onehour = timedelta(hours=1)
+    daily = Timeseries(statuses.start, statuses.stop, oneday)
+
+    calc_one_day_statuses(datetime(2019, 12, 9), statuses, lifts)
+
+    for day in daily:
+        pass
+
+
+# в разработке!
+def calc_one_day_statuses(day: datetime, statuses: Timeseries, lifts: set):
+    one_day = timedelta(days=1)
+    one_hour = timedelta(hours=1)
+    day_dict = dict.fromkeys(lifts, False)
+
+    cur_hour = day
+    for lift in lifts:
+
+        while cur_hour < day + one_day:
+
+            if lift not in statuses[cur_hour] or statuses[cur_hour][lift]:
+                day_dict[lift] = True
+                break
+            cur_hour += one_hour
+
+
+
+def prepare_stats_defects():
 
     csv.register_dialect('win', delimiter=';')
     date_format = "%Y-%m-%d %H:%M:%S.%f"
 
     raw_stats = csvfile_to_list('statdriv.csv', 'win')
-
-    # это новый блок
     first, last = get_first_last_day(raw_stats, date_format)
 
-    drivestat = Timeseries(first, last, timedelta(hours=1))
+    drivestat = Timeseries(first, last, timedelta(hours=1))  # ряд со статистикой включений двигателя
     init_with_dict(drivestat)
-    # заполняем данными, могуть быть пропуски
-    lifts = stats_from_list(drivestat, raw_stats, date_format)
-    # переводим статистику в почасовую и заполняем пропуски None
-    norm_ts(drivestat, lifts)
+
+    lifts = stats_from_list(drivestat, raw_stats, date_format)  # заполняем данными, но могут быть пропуски
+
+    norm_ts(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
     # в результате у нас словарь {datetime: {lift_id: num}}
-    # новый блок окончен
 
-    # словарь по лифтам, внутри словарь по кол-ву включений
-    all_stats = defaultdict(lambda: defaultdict(lambda: None))
+    raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
 
-    # перебираем всё что прочитали
-    for x in raw_stats:
-        # 0, 1, 2 это идентификатор лифта, датавремя вычитывания, кол-во включений
-        id_lift = x[0]
-        num = int(x[2])
-        dt = datetime.strptime(x[1], date_format)  # преобразуем в datetime
-        rounded_dt = dt.replace(microsecond=0, second=0, minute=0)  # округлим до часа
+    events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
+    init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
 
-        # если ключ новый, присваиваем, если старый - добавляем к старому
-        if all_stats[id_lift][rounded_dt] is None:
-            all_stats[id_lift][rounded_dt] = num
-        else:
-            all_stats[id_lift][rounded_dt] += num
+    events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
+
+    fill_events(events)  # заполняем пропуски
+
+    defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
+
+    return lifts, drivestat, defects
 
 
-    for lift in all_stats:
-        norm_num(all_stats[lift])
-
-    # словарь статусов {(лифт, дата) : статус}
-    statuses = {}
-    i = start_date
-    while i < stop_date:
-        for lift in all_stats:
-            key = i, lift
-            statuses[key] = True
-
-        i = i + timedelta(hours=1)
-
-    raw_events = csvfile_to_list('events.csv', 'win')
-    # startdate и stopdate будем использовать те же, что и для вкл. ГП
-    events = Timeseries(first, last, timedelta(hours=1))
-    init_events(events, lifts)  # {datetime : {lift : {num : }}}
-    events_from_list(events, raw_events, date_format)
-    fill_events(events)
-    defects = defects_from_events(events)
-
-
-
-
-
-    # шаг 1. собираем словарь со статусом неисправности для каждого лифта каждый известный час.
-    ddd = make_defect_statuses_dict()
-
-    # print("Словарь за заполнения")
-    # for x in sorted(ddd):
-    #     print(x, ddd[x], sep=';')
-    # шаг 2. заполняем пробелы в этом словаре
-    defects_dict = fill_spaces(ddd, all_stats.keys())
-
-    # шаг 3. делаем из постатусного словаря общий
-    defects_dict = make_defects_from_statuses(defects_dict)
-
-
-
-
-
-    # delta это период простоя, при котором мы считаем лифт поломатым
-    delta = timedelta(hours=t_stat)
-    delta_events = timedelta(hours=t_events)
-    one_hour = timedelta(hours=1)
-    count_statuses = {}  # почасовое количество неисправностей для всех лифтов
-    count_daily_statuses = defaultdict(lambda: 0)  # посуточное количество неисправностей для всех лифтов
-    i = start_date
-    while i < stop_date:  # перебираем дата-время от начала до конца по часам
-
-        sum = 0
-        # хотим определить, сколько лифтов неисправно в этот час
-        # неисправно = не двигался
-        for lift in all_stats:  # для каждой даты-времени перебираем лифты
-            j = i + one_hour  # начало периода
-            flag = False  # будем считать что лифт по умолчанию не двигается
-            while j <= i + delta:  # идем по периоду delta
-                if all_stats[lift][j] != 0:  # если наткнулись на лифт с движением
-                    flag = True  # значит лифт рабочий
-                j += one_hour
-
-            if not flag:  #если лифт всё-таки нерабочий
-                defect_flag = False
-                j = i - delta_events + one_hour
-                # print(j, i - one_hour)
-                while j <= i:
-                    if defects[j][lift]:
-                        defect_flag = True
-                    j += one_hour
-
-                if defect_flag:
-                    print(lift, i, "defect", sep=';')
-                    # try:
-                    #     print(ddd[i, lift])
-                    # except:
-                    #     pass
-                    statuses[i, lift] = False  # отмечаем это в большом словаре статусов
-                    sum += 1  # и увеличиваем счетчик сломанных лифтов в час
-
-        # т.к. в час i мы получаем данные о движении в часе i-1 (то же две строки выше)
-        # то статус надо менять не для текущего часа, а для часа минус один
-        prev = i.replace(second=0, minute=0)  # округления для одинаковых ключей
-
-        # теперь в sum количество сломанных лифтов за час
-        count_statuses[prev] = sum
-        count_daily_statuses[prev.replace(hour=0)] += sum
-        i += one_hour
-
-    # fname = str(t_stat) + "_" + str(t_events) + ".csv"
-    # with open(fname, "w") as f:
-    #     f.write(str(t_stat) + " и " + str(t_events) + "\n")
-    #     for x in sorted(count_daily_statuses):
-    #         #print(count_daily_statuses[x], sep=';')
-    #         f.write(str(count_statuses[x]) + "\n")
-
-    return count_daily_statuses
+def print_statuses(ts: Timeseries):
+    for dt in ts:
+        for lift in ts[dt]:
+            print(dt, lift, sep=';')
 
 
 if __name__ == '__main__':
 
+    tests = [1, 2, 3, 6, 12, 24]
     res = []
 
-    #res.append(process(1, 1))
-    res.append(process(1, 1))
-    #res.append(process(2, 2))
+    lifts, drivestat, defects = prepare_stats_defects()
 
-    dt = start_date
-    while dt < stop_date:
-        print(dt, end=";")
-        for dict in res:
-            print(dict[dt], end=";")
-        print()
-        dt += timedelta(days=1)
+    for test in tests:
+        print("test = ", test)
+        statuses = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
+        print_statuses(statuses)
+
+
+
+
+
 
 
 
