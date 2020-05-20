@@ -28,7 +28,7 @@ def write_date_lift_wo_moving(d: dict, filename='daily.csv'):
 # data - {daylift : {FIRST_HOUR | LAST_HOUR : num}}
 def filtered(data):
     for daylift, subdict in data.items():
-        if subdict[FIRST_HOUR] == subdict[LAST_HOUR]:
+        if subdict.get(FIRST_HOUR) and subdict.get(LAST_HOUR) and subdict[FIRST_HOUR] == subdict[LAST_HOUR]:
             yield daylift
 
 
@@ -45,7 +45,7 @@ def main():
     filename = 'statdriv.csv'
     csv.register_dialect('win', delimiter=';')
 
-    d = defaultdict(lambda: defaultdict(str))
+    d = defaultdict(dict)
     with open(filename, 'r') as csvfile:
         reader = csv.reader(csvfile, dialect='win')
         _ = reader.__next__()  # проигнорируем первую строку с заголовком
