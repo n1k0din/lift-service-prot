@@ -1,5 +1,4 @@
 import csv
-import typing as t
 from collections import defaultdict, namedtuple
 
 FIRST_HOUR = '00'
@@ -62,6 +61,7 @@ def main():
 
     daily = sum_lifts_wo_moving(d)
     write_dict(daily)
+    write_date_lift_wo_moving(d)
 
 
 if __name__ == '__main__':
