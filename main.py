@@ -33,8 +33,10 @@ def csvfile_to_list(filename: str, dialect='excel'):
 # на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
 # на выходе первый и последний день в виде datetime
 def get_first_last_day(lst: list, date_format: str, date_index=1):
-    first = datetime.strptime(lst[0][date_index], date_format)
-    last = datetime.strptime(lst[-1][date_index], date_format)
+    dt_first = lst[0][date_index][:13]
+    dt_last = lst[-1][date_index][:13]
+    first = datetime.strptime(dt_first, date_format)
+    last = datetime.strptime(dt_last, date_format)
 
     to_day_params = {'microsecond': 0, 'second': 0, 'minute': 0, 'hour': 0}
 
@@ -69,6 +71,7 @@ def stats_from_list(ts: Timeseries, lst: list, date_format: str, use_last=True):
     for lift, dt, num in lst:
         lifts.add(lift)
         num = int(num)
+        dt = dt[:13]
         dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
         # в часе может быть несколько записей
 
@@ -88,6 +91,7 @@ def events_from_list(ts: Timeseries, lst: list, date_format: str):
     for lift, dt, flag, num in lst:
         num = int(num)
         flag = int(flag)
+        dt = dt[:13]
         dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
 
         if is_defect_start(num, flag):
@@ -234,8 +238,6 @@ def calc_not_moving_n_hours_a_day(drivestat: Timeseries, lifts: set, n: int):
     daily = Timeseries(drivestat.start, drivestat.stop, one_day)
     init_with_dict(daily)
 
-
-
     # у нас словарь {datetime: {lift_id: num}}
     # и где-то есть функция, которая по 25 значениям определяет, сколько часов в сутки работал лифт
     #  будем перебирать дни
@@ -254,6 +256,7 @@ def calc_not_moving_n_hours_a_day(drivestat: Timeseries, lifts: set, n: int):
 
             j += one_hour
         # print(d)  # это словарь с данными за день i - one_day
+
         for lift, lst in d.items():
             r = slow_daily.foo(lst)
             n_not_moving = len(list(slow_daily.is_false(r)))
@@ -263,6 +266,61 @@ def calc_not_moving_n_hours_a_day(drivestat: Timeseries, lifts: set, n: int):
         i += one_day
 
     return daily
+
+
+def get_day_dict(drivestat: Timeseries, lifts: set, offset=0):
+    one_day = timedelta(days=1)
+    offset = timedelta(hours=offset)
+
+    i = drivestat.start + one_day + offset
+    while i < drivestat.stop:
+
+        j = i - one_day
+        # print("viewing from", j)
+        d = defaultdict(list)
+        while j < i + one_hour:
+            for lift in lifts:
+                d[lift].append(drivestat[j][lift])
+
+            j += one_hour
+
+        #print("Y", i - one_day, d.keys())
+
+        # print("to", j - one_hour)
+        yield (i - one_day - offset, d)
+
+        i += one_day
+        # print(d)  # это словарь с данными за день i - one_day
+
+def count_false(d, in_a_row=False):
+    sum = 0
+    for k in sorted(d, reverse=True):
+        if d[k] is False:
+            sum += 1
+        elif in_a_row:
+            break
+    return sum
+
+def get_daily(ts: Timeseries, lifts: set, n: int, offset=0, in_a_row=False):
+
+    one_day = timedelta(days=1)
+    daily = Timeseries(ts.start, ts.stop, one_day)
+    init_with_dict(daily)
+
+    for k, d in get_day_dict(ts, lifts, offset):
+        for lift, lst in d.items():
+            r = slow_daily.foo(lst)
+
+            n_not_moving = count_false(r, in_a_row)
+
+            if n_not_moving >= n:
+                # print("is false", k, lift)
+                daily[k][lift] = False
+    return daily
+
+
+
+
 
 
 # в разработке!
@@ -305,7 +363,8 @@ def fill_with_none(ts, lifts):
 def prepare_stats_defects():
 
     csv.register_dialect('win', delimiter=';')
-    date_format = "%Y-%m-%d %H:%M:%S.%f"
+    #date_format = "%Y-%m-%d %H:%M:%S.%f"
+    date_format = "%Y-%m-%d %H"
 
     print("Читаем файл со статистикой...")
     raw_stats = csvfile_to_list('statdriv.csv', 'win')
@@ -325,7 +384,7 @@ def prepare_stats_defects():
     #ts_to_relative(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
     # в результате у нас словарь {datetime: {lift_id: num}}
 
-    print("Читаем файл с событиями...")
+    #!print("Читаем файл с событиями...")
     #!raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
 
     #!events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
@@ -355,11 +414,37 @@ def write_statuses(ts: Timeseries, filename: str):
                 f.write("{};{}\n".format(dt, lift))
 
 
+# метод 0 = лифт сломан, если не двигался n часов в сутки
+# метод 1 = лифт сломан, если не двигался подряд последние n часов в сутки
+# метод 2 = лифт сломан, если не двигался подряд последние n часов, смещение offset часов от начала суток
+def calc_daily(method=0, **kwargs):
+    drivestat = kwargs['drivestat']
+    lifts = kwargs['lifts']
+
+    if method == 0:
+        n = kwargs['n']
+        return get_daily(drivestat, lifts, n=n)
+
+    if method == 1:
+        n = kwargs['n']
+        return get_daily(drivestat, lifts, n=n, in_a_row=True)
+
+    if method == 2:
+        n = kwargs['n']
+        offset = kwargs['offset']
+        return get_daily(drivestat, lifts, n=n, in_a_row=True, offset=offset)
+
+
+
 
 
 if __name__ == '__main__':
 
-    tests = [24]
+    tests = [
+             {'method': 2, 'n': 14, 'offset': 8},
+             {'method': 2, 'n': 16, 'offset': 8}
+             ]
+
     res = []
 
     lifts, drivestat, defects = prepare_stats_defects()
@@ -369,11 +454,19 @@ if __name__ == '__main__':
         print("test = ", test)
         #!hourly = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
         #!daily = calc_not_moving_(drivestat, lifts)  # это упрощенная версия calc_statuses
-        daily = calc_not_moving_n_hours_a_day(drivestat, lifts, test)  # это упрощенная версия calc_statuses
-        #!write_statuses(hourly, "hourly.csv")
-        write_statuses(daily, "daily.csv")
-        #print_statuses(statuses)
-        #print_statuses(daily)
+        daily = calc_daily(drivestat=drivestat, lifts=lifts, **test)  # это упрощенная версия calc_statuses
+        res.append(daily)
+
+    for i in range(len(res)):
+        filename = str(i)+'_daily.csv'
+        print("Сохраняем", filename, "...")
+        write_statuses(res[i], filename)
+
+    #!write_statuses(hourly, "hourly.csv")
+    #write_statuses(daily, "daily.csv")
+    #print_statuses(statuses)
+    #print_statuses(daily)
+
 
 
 

@@ -24,6 +24,7 @@ def write_date_lift_wo_moving(d: dict, filename='daily.csv'):
                 pass
 
 
+
 # data - {daylift : {FIRST_HOUR | LAST_HOUR : num}}
 def filtered(data):
     for daylift, subdict in data.items():

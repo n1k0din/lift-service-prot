@@ -36,7 +36,7 @@ def foo(lst):
     if len(lst) != 25:
         raise ValueError("Analyzing only 24+1 len lists")
     d = {}
-    last_truly = None
+    last_truly = numi(-1, None)
     for i in range(1, 24 + 1):
         k = i - 1
         if lst[i] is None:  # если запись пропущена, прямо сейчас мы сказать ничего не сможем
