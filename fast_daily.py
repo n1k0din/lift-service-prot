@@ -1,5 +1,4 @@
 import csv
-import typing as t
 from collections import defaultdict, namedtuple
 
 FIRST_HOUR = '00'
@@ -23,6 +22,7 @@ def write_date_lift_wo_moving(d: dict, filename='daily.csv'):
                     f.write("{};{}\n".format(k.day, k.lift))
             except KeyError:
                 pass
+
 
 
 # data - {daylift : {FIRST_HOUR | LAST_HOUR : num}}
@@ -62,6 +62,7 @@ def main():
 
     daily = sum_lifts_wo_moving(d)
     write_dict(daily)
+    write_date_lift_wo_moving(d)
 
 
 if __name__ == '__main__':
