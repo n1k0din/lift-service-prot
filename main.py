@@ -31,6 +31,15 @@ def csvfile_to_list(filename: str, dialect='excel'):
         return raw_data
 
 
+def str_to_datetime(string: str) -> datetime:
+    year = int(string[:4])
+    month = int(string[5:7])
+    day = int(string[8:10])
+    hours = int(string[11:13])
+    # minutes = int(string[14:16])
+    # seconds = int(string[17:19])
+    return datetime(year, month, day, hours)
+
 # ВНИМАНИЕ! Список может оказаться несортированым, тогда нужно брать не ласт, а макс!
 # на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
 # на выходе первый и последний день в виде datetime
@@ -74,7 +83,8 @@ def stats_from_list(ts: Timeseries, lst: list, date_format: str, use_last=True):
         lifts.add(lift)
         num = int(num)
         dt = dt[:13]
-        dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
+        dt = str_to_datetime(dt)
+        #dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
         # в часе может быть несколько записей
 
         if use_last:  # мы или перезапишем последней
@@ -386,24 +396,24 @@ def prepare_stats_defects():
     print("Устанавливаем пропуски в None...")
     fill_with_none(drivestat, lifts)  # заполняет пропуски None
 
-    #print("Переводим в почасовую статистику и заполняем пропуски...")
-    #ts_to_relative(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
+    # print("Переводим в почасовую статистику и заполняем пропуски...")
+    # ts_to_relative(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
     # в результате у нас словарь {datetime: {lift_id: num}}
 
-    #!print("Читаем файл с событиями...")
-    #!raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
-
-    #!events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
-    #!init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
-
-    #!print("Заполняем словарь событий первичными данными...")
-    #!events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
-
-    #!print("Заполняем пропуски...")
-    #!fill_events(events)  # заполняем пропуски
-
-    #!print("Заполняем словарь дефектов...")
-    #!defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
+    # print("Читаем файл с событиями...")
+    # raw_events = csvfile_to_list('events.csv', 'win')  # first и last будем использовать те же, что и для вкл. ГП
+    #
+    # events = Timeseries(first, last, timedelta(hours=1))  # создаем ряд
+    # init_events(events, lifts)  # инициализируем {datetime : {lift : {num : }}}
+    #
+    # print("Заполняем словарь событий первичными данными...")
+    # events_from_list(events, raw_events, date_format)  # заполняем данными из raw_events
+    #
+    # print("Заполняем пропуски...")
+    # fill_events(events)  # заполняем пропуски
+    #
+    # print("Заполняем словарь дефектов...")
+    # defects = defects_from_events(events)  # словарь "в этот час у этого лифта есть хоть одна активная ошибка"
 
     return lifts, drivestat, None
 
@@ -497,10 +507,25 @@ def delete_bad(d: Timeseries, bad: t.Set):
             del d[dt][lift]
             #print(dt, lift, "удалено")
 
+
+def delete_wo_errors(d: Timeseries, defects: Timeseries, delta=timedelta(hours=12)):
+    sum = 0
+    i = d.start + one_day
+    while i < d.stop:
+        for lift in d[i].copy():
+            if not is_errors(defects, lift, i, delta):
+                del d[i][lift]
+                #print(i, lift, "удалено")
+                sum += 1
+        i += one_day
+    return sum
+
+
 if __name__ == '__main__':
     tests = [
             {'method': 0, 'n': 23, 'offset': 0},
-            {'method': 2, 'n': 16, 'offset': 0}
+            {'method': 2, 'n': 14, 'offset': 8},
+            {'method': 2, 'n': 16, 'offset': 8}
             ]
 
     res_day_lift = []
@@ -508,21 +533,25 @@ if __name__ == '__main__':
 
     lifts, drivestat, defects = prepare_stats_defects()
     print("Всего лифтов", len(lifts))
-
+    i = 1
     for test in tests:
         print("test = ", test)
         #!hourly = calc_statuses(timedelta(hours=test), lifts, drivestat, defects)
         #!daily = calc_not_moving_(drivestat, lifts)  # это упрощенная версия calc_statuses
         daily = calc_daily(drivestat=drivestat, lifts=lifts, **test)  # это упрощенная версия calc_statuses
 
-        bad = get_bad_lifts(daily, 25)
+        bad = get_bad_lifts(daily, 10)
+        print(bad)
         print("Мёртвых лифтов: ", len(bad))
         delete_bad(daily, bad)
+        #print("Стоящих без ошибок: ", delete_wo_errors(drivestat, defects))
 
         pivot_data = sum_daily(daily)  # вычисляет сводные данные день, количество неисправных лифтов
 
         res_day_lift.append(daily)
         res_day_sum.append(pivot_data)
+
+        i += 1
 
     for i in range(len(tests)):
         filename = str(i)+'day_lift.csv'
