@@ -2,6 +2,7 @@ import csv
 from collections import defaultdict
 from datetime import datetime, timedelta
 from Timeseries import Timeseries
+from Lift import Lift
 import slow_daily
 import typing as t
 
@@ -32,22 +33,29 @@ def csvfile_to_list(filename: str, dialect='excel'):
 
 
 def str_to_datetime(string: str) -> datetime:
-    year = int(string[:4])
-    month = int(string[5:7])
-    day = int(string[8:10])
-    hours = int(string[11:13])
-    # minutes = int(string[14:16])
-    # seconds = int(string[17:19])
-    return datetime(year, month, day, hours)
+    try:
+        year = int(string[:4])
+        month = int(string[5:7])
+        day = int(string[8:10])
+        hours = int(string[11:13])
+        minutes = int(string[14:16])
+        # seconds = int(string[17:19])
+
+        return datetime(year, month, day, hours, minutes)
+    except ValueError:
+        raise ValueError(string)
+
 
 # ВНИМАНИЕ! Список может оказаться несортированым, тогда нужно брать не ласт, а макс!
 # на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
 # на выходе первый и последний день в виде datetime
-def get_first_last_day(lst: list, date_format: str, date_index=1):
-    dt_first = lst[0][date_index][:13]
-    dt_last = lst[-1][date_index][:13]
-    first = datetime.strptime(dt_first, date_format)
-    last = datetime.strptime(dt_last, date_format)
+def get_first_last_day(lst: list, date_index=1):
+    str_first = lst[0][date_index][:13]
+    str_last = lst[-1][date_index][:13]
+    first = str_to_datetime(str_first)
+    last = str_to_datetime(str_last)
+    # first = datetime.strptime(dt_first, date_format)
+    # last = datetime.strptime(dt_last, date_format)
 
     to_day_params = {'microsecond': 0, 'second': 0, 'minute': 0, 'hour': 0}
 
@@ -76,6 +84,7 @@ def init_events(events: Timeseries, lifts: set):
             events[dt][lift] = dict.fromkeys(num_with_flags | num_wo_flag.keys())
 
 
+
 # заполняет временной ряд статистики включений главного привода
 def stats_from_list(ts: Timeseries, lst: list, date_format: str, use_last=True):
     lifts = set()  # заодно вернем сет встретившихся лифтов, чтоб два раза не вставать
@@ -83,8 +92,8 @@ def stats_from_list(ts: Timeseries, lst: list, date_format: str, use_last=True):
         lifts.add(lift)
         num = int(num)
         dt = dt[:13]
-        dt = str_to_datetime(dt)
-        #dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
+        dt = str_to_datetime(dt) # это ускоряет обработку в 3 раза
+        # dt = (datetime.strptime(dt, date_format)).replace(microsecond=0, second=0, minute=0)
         # в часе может быть несколько записей
 
         if use_last:  # мы или перезапишем последней
@@ -280,6 +289,35 @@ def calc_not_moving_n_hours_a_day(drivestat: Timeseries, lifts: set, n: int):
     return daily
 
 
+def filtered_by_lift(ts: Timeseries, lift: str):
+    for dt in ts:
+        if lift in ts[dt]:
+            yield dt, ts[dt][lift]
+
+
+
+
+
+def is_stopped_12_hours_a_row(lift_id: str, fullstat: Timeseries, day: datetime) -> bool:
+    # от fullstat[day][lift_id] до fullstat[day + one_day][lift_id] лифт стоял 12 часов подряд
+
+    # for k, d in get_day_dict(fullstat, lifts):
+    #     for lift, lst in d.items():
+    #         r = slow_daily.foo(lst)
+    print("lift = ")
+    for dt, num in (filtered_by_lift(fullstat, lift_id), day, day+one_day):
+        print(dt, num)
+
+
+
+
+
+
+
+
+
+
+
 def get_day_dict(drivestat: Timeseries, lifts: set, offset=0):
     one_day = timedelta(days=1)
     offset = timedelta(hours=offset)
@@ -374,6 +412,24 @@ def fill_with_none(ts, lifts):
                 ts[dt][lift] = None
 
 
+def lifts_from_set(lifts_set) -> set:
+    all_lifts = set()
+
+    for lift in lifts_set:
+        all_lifts.add(Lift(lift))
+
+    return all_lifts
+
+
+def lifts_from_set_and_drivestat(lifts_set, drivestat) -> set:
+    all_lifts = set()
+
+    for lift in lifts_set:
+
+        all_lifts.add(Lift(lift, drivestat))
+
+    return all_lifts
+
 
 
 def prepare_stats_defects():
@@ -395,6 +451,17 @@ def prepare_stats_defects():
 
     print("Устанавливаем пропуски в None...")
     fill_with_none(drivestat, lifts)  # заполняет пропуски None
+
+
+    # print('filtered_by_lift')
+    # for lift in lifts:
+    #     print(lift)
+    #     for dt, num in filtered_by_lift(drivestat, lift):
+    #         print(dt, num, sep=';')
+
+    for lift in lifts:
+        is_stopped_12_hours_a_row(lift, drivestat, datetime(2020, 12, 10))
+
 
     # print("Переводим в почасовую статистику и заполняем пропуски...")
     # ts_to_relative(drivestat, lifts)  # переводим статистику в почасовую и заполняем пропуски None
