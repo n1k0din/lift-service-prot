@@ -2,7 +2,6 @@ import csv
 from collections import defaultdict
 from datetime import datetime, timedelta
 from Timeseries import Timeseries
-from Lift import Lift
 import slow_daily
 import typing as t
 
@@ -39,9 +38,9 @@ def str_to_datetime(string: str) -> datetime:
         day = int(string[8:10])
         hours = int(string[11:13])
         minutes = int(string[14:16])
-        # seconds = int(string[17:19])
+        seconds = int(string[17:19])
 
-        return datetime(year, month, day, hours, minutes)
+        return datetime(year, month, day, hours, minutes, seconds)
     except ValueError:
         raise ValueError(string)
 

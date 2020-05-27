@@ -18,6 +18,8 @@ CHIPPER = ONE_DAY
 WORKING_DAYS = 25
 OFF_DAYS = 12
 
+ROUND_H = {'minute': 0, 'second': 0, 'microsecond': 0}
+
 
 LIFT = '1295'
 
@@ -106,49 +108,47 @@ def stats_from_list(lst: list):
     return abs_stats
 
 
-def mins_from_dt(dt: datetime) -> float:
-    return dt.hour * 60 + dt.minute + dt.second / 60
+def minutes_timdelta(dt0: datetime, dt1: datetime) -> float:
+
+    delta = dt1 - dt0 if dt1 > dt0 else dt0 - dt1
+    return delta.seconds / 60
 
 
 def add(t0, t1, res):
     dt0 = oldy.str_to_datetime(t0.dt)
     dt1 = oldy.str_to_datetime(t1.dt)
+    print(dt0, dt1)
 
-    # вариант номер раз: dt1 - dt0 пропуск больше двух часов
-    if dt1 - dt0 >= GAP:
-        if t1.num == t0.num:  # но при этом количество включений не изменилось
-            # 1. прикидываем кол-во включений на 00 минут
-            # 2. присваиваем часам с dt0.replace по dt1.replace
-            print("Заполнено предыдущим", t1, t0)
-            # прикол - мы по идее уже знаем значение res[t0], его и присвоим
-            i = dt0.replace(minute=0)
-            while i <= dt1.replace(minute=0):
-                res[i] = res[dt0.replace(minute=0)]
-                i += ONE_HOUR
+    if t1.num == t0.num:  # количество включений не изменилось
+        # присваиваем часам с dt0.replace по dt1.replace
+        # print("Заполнено предыдущим", t1, t0)
+        # прикол - мы в любом случае знаем значение для предыдущего часа
 
-            pass
+        i = dt0.replace(**ROUND_H)
+        while i <= dt1.replace(**ROUND_H):
+            res[i] = res[dt0.replace(**ROUND_H)]
+            i += ONE_HOUR
+
+    else:
+        # вариант номер раз: заполним пустышками
+        if dt1 - dt0 >= GAP:
+                print("Заполнено None", t1, t0)
+                i = dt0.replace(**ROUND_H)
+                while i <= dt1.replace(**ROUND_H):
+                    res[i] = None
+                    i += ONE_HOUR
+
+        # вариант 2: аппроксимируем
         else:
-            print("Заполнено None", t1, t0)
-            i = dt0.replace(minute=0)
-            while i <= dt1.replace(minute=0):
-                res[i] = None
-                i += ONE_HOUR
-
-    else:  # если пропуск небольшой, то
-        # print(dt1-dt0, t1, t0)
-        min0 = mins_from_dt(dt0)
-        min1 = mins_from_dt(dt1)
-        k = (t1.num - t0.num)/(min1 - min0)
-        b = t0.num - k * min0
-
-        dt_res = dt1.replace(minute=0)
-        res[dt_res] = k * mins_from_dt(dt_res) + b
-
-
-
-
-
-
+            # F(th) = F1 - (t1 - th) * k, где k = (F(t1) - F(t0)) / (t1 - t0)
+            interval = minutes_timdelta(dt1, dt0)
+            k = (t1.num - t0.num) / interval
+            # print("k = ", k)
+            # print("interval = ", interval)
+            th = dt1.replace(**ROUND_H)
+            # print(th, dt1, "th - t1 = ", minutes_timdelta(dt1, th))
+            res[th] = t1.num - k * minutes_timdelta(dt1, th)
+            print(th, res[th], sep=';')
 
 
 # проверяем, есть ли дырки в словаре с ключами-датавременем
@@ -157,10 +157,14 @@ def empty_test(d):
     stop = max(d)
 
     dt = start
+    any_empty = False
     while dt < stop:
         if dt not in d:
             print("EMPTY", dt)
+            any_empty = True
         dt += ONE_HOUR
+
+    return any_empty
 
 
 def read_stats():
@@ -172,7 +176,11 @@ def read_stats():
     t0 = record(next[1], int(next[2]))
     t0_hour = t0.dt[11:13]
 
+
     res = {}
+    # Допущение - независимо от минуты в самом первом измерении, это значение записывается в res[час]
+
+    res[oldy.str_to_datetime(t0.dt).replace(**ROUND_H)] = t0.num
 
     while True:
         try:
@@ -194,11 +202,10 @@ def read_stats():
             break
 
 
-    print("res")
+    print("res start")
     for dt in sorted(res):
         print(dt, res[dt], sep=';')
-
-    empty_test(res)
+    print(("res end"))
 
     return res
 
@@ -276,8 +283,6 @@ def sum_table(dayset: set, stats):
     return sum
 
 
-
-
 def calc_a(dayset, stats):
     a = defaultdict(int)
     for day in sorted(dayset):
@@ -332,6 +337,7 @@ def calc_final(dayset, stats, tm, a):
 
     return final
 
+
 def print_final(dayset, final):
 
     for day in sorted(dayset):
@@ -349,6 +355,9 @@ def print_final(dayset, final):
 def main():
 
     stats = read_stats()
+
+    if empty_test(stats):
+        return
 
     work, weekend = split_days(min(stats), max(stats))
     #print(work, '\n', weekend)
@@ -391,7 +400,7 @@ def main():
     #
     neg = count_neg(tm_work.values()) + count_neg(tm_off.values())
     print("Отрицательных порогов: ", neg)
-    if neg > 37 / 2:
+    if neg > (WORKING_DAYS + OFF_DAYS) / 2:
         print("Индекс равен *")
         return
     #
