@@ -5,6 +5,7 @@ from math import sqrt
 import xml_parser
 import csv
 import oldy
+import pytest
 
 record = namedtuple('record', ['dt', 'num'])
 
@@ -15,13 +16,13 @@ GAP = timedelta(minutes=120)
 
 CHIPPER = ONE_DAY
 
-WORKING_DAYS = 25
-OFF_DAYS = 12
+N_WORKING_DAYS = 25
+N_OFF_DAYS = 12
 
 ROUND_H = {'minute': 0, 'second': 0, 'microsecond': 0}
 
 
-LIFT = '1295'
+
 
 
 def liftstats_from_list(lst: list, first_date: datetime, last_date: datetime, use_last=True) -> dict:
@@ -85,14 +86,6 @@ def add_abs_dirty(abs_dirty, dt, num):
     #             filler = None
     #             fill_dt_dict_with_x(abs_dirty_dict, filler, last + ONE_HOUR, dt_key)
 
-
-
-
-
-
-
-
-
 def stats_from_list(lst: list):
     abs_stats = defaultdict(deque)
     rel_stats = {}
@@ -117,7 +110,7 @@ def minutes_timdelta(dt0: datetime, dt1: datetime) -> float:
 def add(t0, t1, res):
     dt0 = oldy.str_to_datetime(t0.dt)
     dt1 = oldy.str_to_datetime(t1.dt)
-    print(dt0, dt1)
+    # print(dt0, dt1, dt1 - dt0, dt1 - dt0 >= GAP)
 
     if t1.num == t0.num:  # количество включений не изменилось
         # присваиваем часам с dt0.replace по dt1.replace
@@ -131,10 +124,10 @@ def add(t0, t1, res):
 
     else:
         # вариант номер раз: заполним пустышками
-        if dt1 - dt0 >= GAP:
-                print("Заполнено None", t1, t0)
-                i = dt0.replace(**ROUND_H)
+        if dt1 - dt0.replace(**ROUND_H) >= GAP:
+                i = (dt0 + ONE_HOUR).replace(**ROUND_H)
                 while i <= dt1.replace(**ROUND_H):
+                    print("Заполнено None", i)
                     res[i] = None
                     i += ONE_HOUR
 
@@ -167,20 +160,17 @@ def empty_test(d):
     return any_empty
 
 
-def read_stats():
+def read_stats(lift_input):
     csv.register_dialect('win', delimiter=';')
-    raw_stats = oldy.csvfile_to_list(LIFT+'.csv', 'win')  # читаем файл в список
+    raw_stats = oldy.csvfile_to_list(lift_input + '.csv', 'win')  # читаем файл в список
     stats = iter(raw_stats)
 
     next = stats.__next__()
     t0 = record(next[1], int(next[2]))
     t0_hour = t0.dt[11:13]
 
-
-    res = {}
     # Допущение - независимо от минуты в самом первом измерении, это значение записывается в res[час]
-
-    res[oldy.str_to_datetime(t0.dt).replace(**ROUND_H)] = t0.num
+    res = {oldy.str_to_datetime(t0.dt).replace(**ROUND_H): t0.num}
 
     while True:
         try:
@@ -210,8 +200,6 @@ def read_stats():
     return res
 
 
-
-
 def get_bad_days(stats):
     bad_days = set()
     for dt in stats:
@@ -219,6 +207,7 @@ def get_bad_days(stats):
             bad_days.add((dt - ONE_HOUR).replace(hour=0))
             bad_days.add(dt.replace(hour=0))
     return bad_days
+
 
 
 def split_days(firstday, lastday):
@@ -245,11 +234,8 @@ def split_days(firstday, lastday):
 def get_another_day(stats, good_list, bad_list):
     i = max(stats).replace(hour=0) - ONE_DAY
     while i >= min(stats):
-        # if i in good_list and i not in bad_list:
         if i in good_list and i not in bad_list:
             yield i
-        #     print(i)
-        #     yield i
         i -= ONE_DAY
 
 
@@ -261,7 +247,7 @@ def get_dayset(stats, good_list, bad_list, n_days):
         k += 1
         if k >= n_days:
             return dayset
-    return dayset
+    return None
 
 
 def print_table(dayset: set, stats):
@@ -269,8 +255,8 @@ def print_table(dayset: set, stats):
         print(day.strftime("%d.%m.%Y"), end=';')
         for i in range(24):
             dt = day.replace(hour=i)
-
-            print(stats.get((dt + ONE_HOUR), 999) - stats.get(dt, -1), end=';')
+            print(stats[dt + ONE_HOUR] - stats[dt], end=';')
+            # print(stats.get((dt + ONE_HOUR), 999) - stats.get(dt, -1), end=';')
         print()
 
 
@@ -288,7 +274,10 @@ def calc_a(dayset, stats):
     for day in sorted(dayset):
         for i in range(24):
             dt = day.replace(hour=i)
-            a[i] += (stats.get(dt + ONE_HOUR, stats[dt])-stats[dt])
+            num1 = stats[dt + ONE_HOUR]
+            num0 = stats[dt]
+            num = num1 - num0 if num1 >= num0 else num1
+            a[i] += num
 
     for x in a:
         a[x] /= len(dayset)
@@ -300,7 +289,6 @@ def calc_s(a):
     s = {}
     for key in a:
         s[key] = 3 * sqrt(a[key])
-
     return s
 
 
@@ -308,7 +296,6 @@ def calc_tm(a):
     tm = {}
     for key in a:
         tm[key] = a[key] - 3 * sqrt(a[key])
-
     return tm
 
 
@@ -317,7 +304,6 @@ def count_neg(iterable):
     for x in iterable:
         if x < 0:
             sum += 1
-
     return sum
 
 
@@ -334,7 +320,6 @@ def calc_final(dayset, stats, tm, a):
                 print(f"{dt} was {num} with tm={tm[dt.hour]:.2f} changed to {a[dt.hour]}")
                 final[dt] = a[dt.hour]
 
-
     return final
 
 
@@ -349,28 +334,25 @@ def print_final(dayset, final):
         print()
 
 
+def main(lift_input):
 
-
-
-def main():
-
-    stats = read_stats()
+    stats = read_stats(lift_input)
 
     if empty_test(stats):
-        return
+        return "EMPTY"
 
     work, weekend = split_days(min(stats), max(stats))
-    #print(work, '\n', weekend)
-    #
-    bad_days = get_bad_days(stats)
-    # print("baddys")
-    # for lift in bad_days:
-    #     print(lift, bad_days[lift])
-    #
-    #
-    work_dayset = get_dayset(stats, work, bad_days, WORKING_DAYS)
 
-    offday_dayset = get_dayset(stats, weekend, bad_days, OFF_DAYS)
+    bad_days = get_bad_days(stats)  # набор дней с пропусками в данных
+
+    # теперь из входных данных и списка рабочих/нерабочих дней собираем по сколько надо
+    # тут неплохо смотрелось бы пересечение множеств, но важен порядок
+    work_dayset = get_dayset(stats, work, bad_days, N_WORKING_DAYS)
+    offday_dayset = get_dayset(stats, weekend, bad_days, N_OFF_DAYS)
+
+    if not work_dayset or not offday_dayset:
+        print("Не набралось достаточно дней!")
+        return "OUTOFDAYS"
 
     print("WORK")
     print_table(work_dayset, stats)
@@ -379,70 +361,48 @@ def main():
     print_table(offday_dayset, stats)
     #
 
+    # средние
     a_work = calc_a(work_dayset, stats)
-    # print("A WORK")
-    # for x in a_work:
-    #     print(a_work[x], end=';')
-    # print()
-
     a_off = calc_a(offday_dayset, stats)
-
     print(a_work, a_off, sep='\n')
-    #
+
+    # пороги
     tm_work = calc_tm(a_work)
     tm_off = calc_tm(a_off)
-    #
     print(tm_work, tm_off, sep='\n')
-    # for x in tm_work:
-    #     print(tm_work[x], end=';')
-    # print()
-    #
-    #
-    neg = count_neg(tm_work.values()) + count_neg(tm_off.values())
-    print("Отрицательных порогов: ", neg)
-    if neg > (WORKING_DAYS + OFF_DAYS) / 2:
-        print("Индекс равен *")
-        return
-    #
+
+    neg_work = count_neg(tm_work.values())
+    neg_off = count_neg(tm_off.values())
+    print("Отрицательных порогов: ", neg_work, neg_off)
+    if neg_work >= 12 or neg_off >= 12:
+        print("Мало поездок в день, индекс равен *")
+        return "MANYNEG"
+
     print("work final")
     work_final = calc_final(work_dayset, stats, tm_work, a_work)
     print_final(work_dayset, work_final)
-    #
+
     print("off final")
     off_final = calc_final(offday_dayset, stats, tm_off, a_off)
     print_final(offday_dayset, off_final)
 
-
     real_sum = sum_table(work_dayset, stats) + sum_table(offday_dayset, stats)
     final_sum = sum(work_final.values()) + sum(off_final.values())
-    print(real_sum, final_sum, real_sum/final_sum, final_sum - real_sum)
-    #index = calc_real(stats, work_dayset, offday_dayset) /
+    index = real_sum / final_sum
+    print(real_sum, final_sum, index)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return index
 
 
 if __name__ == '__main__':
-    main()
+
+    tests = ['111', '3239', '3240', '3241', '3242', '1290', '1291', '1293', '1294', '1295']
+    # tests = ['3162']
+    res = []
+    for test in tests:
+        res.append((test, main(test)))
+
+    print("RESULTS")
+    for t, r in res:
+        print(t, r)
+
