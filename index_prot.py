@@ -20,6 +20,7 @@ N_WORKING_DAYS = 25
 N_OFF_DAYS = 12
 
 ROUND_H = {'minute': 0, 'second': 0, 'microsecond': 0}
+ROUND_D = {'hour': 0, 'minute': 0, 'second': 0, 'microsecond': 0}
 
 
 
@@ -141,7 +142,7 @@ def add(t0, t1, res):
             th = dt1.replace(**ROUND_H)
             # print(th, dt1, "th - t1 = ", minutes_timdelta(dt1, th))
             res[th] = t1.num - k * minutes_timdelta(dt1, th)
-            print(th, res[th], sep=';')
+            # print(th, res[th], sep=';')
 
 
 # проверяем, есть ли дырки в словаре с ключами-датавременем
@@ -192,10 +193,10 @@ def read_stats(lift_input):
             break
 
 
-    print("res start")
-    for dt in sorted(res):
-        print(dt, res[dt], sep=';')
-    print(("res end"))
+    # print("res start")
+    # for dt in sorted(res):
+    #     print(dt, res[dt], sep=';')
+    # print(("res end"))
 
     return res
 
@@ -208,6 +209,61 @@ def get_bad_days(stats):
             bad_days.add(dt.replace(hour=0))
     return bad_days
 
+
+def days_from_dt0_to_dt1(dt0: datetime, dt1: datetime):
+    days = set()
+    i = dt0.replace(**ROUND_D)
+
+    while i <= dt1.replace(**ROUND_D):
+        days.add(i)
+        i += ONE_DAY
+    return days
+
+
+def get_not_moving_days(stats, n_hours=12):
+    not_moving = set()
+    start = min(stats)
+    stop = max(stats)
+
+    i = start
+    while i < stop:
+        j = i + ONE_HOUR
+        k = 0
+        while stats[j] and stats[j] == stats[i] and j < stop:
+            k += 1
+            j += ONE_HOUR
+        if k > 12:
+            not_moving.update(days_from_dt0_to_dt1(i, j - ONE_HOUR))
+        i = j
+
+    return not_moving
+
+
+# работает, перебирает дни, показывает с какого момента сколько часов подряд лифт не двигался
+def __get_not_moving_lifts(stats, n_hours=12):
+    not_moving = set()
+    start = min(stats)
+    stop = max(stats)
+
+    day = start
+    print("Ищем дни без движения 12 часов подряд")
+    while day < stop:
+        # print("День", day)
+
+        hour = day
+        while hour <= day + ONE_DAY:
+            # print("Час", hour)
+            current = hour + ONE_HOUR
+            k = 0
+            while stats[current] == stats[hour] and current <= day + ONE_DAY:
+                k += 1
+                current += ONE_HOUR
+            if k > 0:
+                print(f"Начиная с {hour} лифт не двигался {k} часов подряд.")
+
+            hour = current
+
+        day += ONE_DAY
 
 
 def split_days(firstday, lastday):
@@ -343,7 +399,14 @@ def main(lift_input):
 
     work, weekend = split_days(min(stats), max(stats))
 
+    not_moving = get_not_moving_days(stats)
+    print(f"{len(not_moving)} дней без движения по 12 часов подряд: {not_moving}")
+
     bad_days = get_bad_days(stats)  # набор дней с пропусками в данных
+    print(f"{len(bad_days)} дней с пропусками в данных: {bad_days}")
+
+    bad_days.update(not_moving)
+    print(f"Итого убираем из рассмотрения дней: {len(bad_days)}")
 
     # теперь из входных данных и списка рабочих/нерабочих дней собираем по сколько надо
     # тут неплохо смотрелось бы пересечение множеств, но важен порядок
@@ -397,12 +460,13 @@ def main(lift_input):
 if __name__ == '__main__':
 
     tests = ['111', '3239', '3240', '3241', '3242', '1290', '1291', '1293', '1294', '1295']
-    # tests = ['3162']
+    # tests = ['1293']
     res = []
     for test in tests:
+        print(f'-----Тест {test}-----')
         res.append((test, main(test)))
 
-    print("RESULTS")
+    print("-----Общие результаты-----")
     for t, r in res:
         print(t, r)
 
