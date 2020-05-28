@@ -411,26 +411,6 @@ def fill_with_none(ts, lifts):
                 ts[dt][lift] = None
 
 
-def lifts_from_set(lifts_set) -> set:
-    all_lifts = set()
-
-    for lift in lifts_set:
-        all_lifts.add(Lift(lift))
-
-    return all_lifts
-
-
-def lifts_from_set_and_drivestat(lifts_set, drivestat) -> set:
-    all_lifts = set()
-
-    for lift in lifts_set:
-
-        all_lifts.add(Lift(lift, drivestat))
-
-    return all_lifts
-
-
-
 def prepare_stats_defects():
 
     csv.register_dialect('win', delimiter=';')
@@ -440,7 +420,7 @@ def prepare_stats_defects():
     print("Читаем файл со статистикой...")
     raw_stats = csvfile_to_list('statdriv.csv', 'win')
     print("Получаем первый и последний день...")
-    first, last = get_first_last_day(raw_stats, date_format)
+    first, last = get_first_last_day(raw_stats)
 
     drivestat = Timeseries(first, last, timedelta(hours=1))  # ряд со статистикой включений двигателя
     init_with_dict(drivestat)

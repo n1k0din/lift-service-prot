@@ -162,7 +162,7 @@ def empty_test(d):
 
 
 def read_stats(lift_input):
-    csv.register_dialect('win', delimiter=';')
+
     raw_stats = oldy.csvfile_to_list(lift_input + '.csv', 'win')  # читаем файл в список
     stats = iter(raw_stats)
 
@@ -363,18 +363,24 @@ def count_neg(iterable):
     return sum
 
 
-def calc_final(dayset, stats, tm, a):
+def calc_final(dayset, stats, tm, a, defects):
     final = {}
 
     for day in sorted(dayset):
         for i in range(24):
             dt = day.replace(hour=i)
             num = (stats.get(dt + ONE_HOUR, stats[dt])-stats[dt])
-            if num > tm[dt.hour]:
+            if num >= tm[dt.hour]:
                 final[dt] = num
             else:
-                print(f"{dt} was {num} with tm={tm[dt.hour]:.2f} changed to {a[dt.hour]}")
-                final[dt] = a[dt.hour]
+
+                if defects.get(dt):
+                    final[dt] = a[dt.hour]
+                    print(f"{dt} was {num} with tm={tm[dt.hour]:.2f} changed to {a[dt.hour]}")
+                else:
+                    print(f"{dt} ниже порога({num} < {tm[dt.hour]}), но журналом не подтверждено.")
+                    final[dt] = num
+
 
     return final
 
@@ -390,12 +396,82 @@ def print_final(dayset, final):
         print()
 
 
+def events_from_list(lst: list):
+    events = {}
+
+    current = {}
+
+    for _, dt, flag, num in lst:
+        num = int(num)
+        flag = int(flag)
+        dt = (oldy.str_to_datetime(dt)).replace(second=0, minute=0)
+
+        if oldy.is_defect_start(num, flag):
+            current[num] = True
+        elif oldy.is_defect_stop(num, flag):
+            current[num] = False
+
+        #print(dt, lift)
+        events[dt] = current.copy()
+
+    return events
+
+
+# events это временной ряд, значения = лифты (значения = коды ошибок (значения равно состояния ошибок)))
+def fill_events(events: dict):
+
+    i = min(events) + ONE_HOUR
+    while i <= max(events):
+        # print(i, events.get(i))
+        if not events.get(i):  # и проверяем пустоту записей
+            j = i - ONE_HOUR
+            flag = False
+            while j >= min(events):  # найдем какой-нибудь непустой статус
+                # print('get_j = ', events.get(j))
+                if events.get(j) is not None:
+                    flag = True
+                    break
+                j -= ONE_HOUR
+
+            if flag:  # нашли
+                events[i] = events[j].copy()
+
+        i += ONE_HOUR
+
+
+def defects_from_events(events: dict):
+    defects = {}
+
+    for dt in events:
+        defects[dt] = any(events[dt].values())
+
+    return defects
+
+
+def read_events(lift_input):
+    raw_events = oldy.csvfile_to_list('e_' + lift_input + '.csv', 'win')
+
+    events = events_from_list(raw_events)  # переписали что дали в словарь
+
+    fill_events(events)  # заполнили пропуски
+
+    return defects_from_events(events)
+
+
 def main(lift_input):
 
-    stats = read_stats(lift_input)
+    csv.register_dialect('win', delimiter=';')
+
+    stats = read_stats(lift_input)  # возвращает недырявый словарь {дата_время: колво_включений}
 
     if empty_test(stats):
         return "EMPTY"
+
+    defects = read_events(lift_input)  # возвращает словарь {дата_время: была_ли_активная_неисправность_по_журналу}
+    print(f"Насобирали словарь дефектов с {min(defects)} по {max(defects)}")
+    if empty_test(defects):
+        return "EMPTY DEFECTS"
+
 
     work, weekend = split_days(min(stats), max(stats))
 
@@ -442,11 +518,11 @@ def main(lift_input):
         return "MANYNEG"
 
     print("work final")
-    work_final = calc_final(work_dayset, stats, tm_work, a_work)
+    work_final = calc_final(work_dayset, stats, tm_work, a_work, defects)
     print_final(work_dayset, work_final)
 
     print("off final")
-    off_final = calc_final(offday_dayset, stats, tm_off, a_off)
+    off_final = calc_final(offday_dayset, stats, tm_off, a_off, defects)
     print_final(offday_dayset, off_final)
 
     real_sum = sum_table(work_dayset, stats) + sum_table(offday_dayset, stats)
@@ -459,8 +535,8 @@ def main(lift_input):
 
 if __name__ == '__main__':
 
-    tests = ['111', '3239', '3240', '3241', '3242', '1290', '1291', '1293', '1294', '1295']
-    # tests = ['1293']
+    tests = ['3239', '3240', '3241', '3242', '1290', '1291', '1293', '1294', '1295', '2010']
+    # tests = ['1295']
     res = []
     for test in tests:
         print(f'-----Тест {test}-----')
