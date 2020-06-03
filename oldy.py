@@ -11,6 +11,14 @@ num_wo_flag = {19: 18}  # ключ: событие-начало, значени�
 one_hour = timedelta(hours=1)
 one_day = timedelta(days=1)
 
+YEAR = slice(0, 4)
+MONTH = slice(5, 7)
+DAY = slice(8, 10)
+HOURS = slice(11, 13)
+MINUTES = slice(14, 16)
+SECONDS = slice(17, 19)
+
+
 
 def is_defect_start(num: int, flag: int):
     return (num in num_wo_flag) or (num in num_with_flags and flag & 2 != 0)
@@ -33,12 +41,12 @@ def csvfile_to_list(filename: str, dialect='excel'):
 
 def str_to_datetime(string: str) -> datetime:
     try:
-        year = int(string[:4])
-        month = int(string[5:7])
-        day = int(string[8:10])
-        hours = int(string[11:13])
-        minutes = int(string[14:16])
-        seconds = int(string[17:19])
+        year = int(string[YEAR])
+        month = int(string[MONTH])
+        day = int(string[DAY])
+        hours = int(string[HOURS])
+        minutes = int(string[MINUTES])
+        seconds = int(string[SECONDS])
 
         return datetime(year, month, day, hours, minutes, seconds)
     except ValueError:
