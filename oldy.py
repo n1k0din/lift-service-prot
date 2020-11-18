@@ -11,9 +11,9 @@ num_wo_flag = {19: 18}  # ключ: событие-начало, значени�
 one_hour = timedelta(hours=1)
 one_day = timedelta(days=1)
 
-YEAR = slice(0, 4)
-MONTH = slice(5, 7)
-DAY = slice(8, 10)
+DAY = slice(0, 2)
+MONTH = slice(3, 5)
+YEAR = slice(6, 10)
 HOURS = slice(11, 13)
 MINUTES = slice(14, 16)
 SECONDS = slice(17, 19)
@@ -57,8 +57,8 @@ def str_to_datetime(string: str) -> datetime:
 # на входе сортированный список строк, формат датывремени, номер столбца с датойвременем
 # на выходе первый и последний день в виде datetime
 def get_first_last_day(lst: list, date_index=1):
-    str_first = lst[0][date_index][:13]
-    str_last = lst[-1][date_index][:13]
+    str_first = lst[0][date_index][:20]
+    str_last = lst[-1][date_index][:20]
     first = str_to_datetime(str_first)
     last = str_to_datetime(str_last)
     # first = datetime.strptime(dt_first, date_format)
